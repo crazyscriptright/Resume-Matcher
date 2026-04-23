@@ -188,6 +188,26 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
     ]
 
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> list[str]:
+        """Parse CORS origins from environment variable (JSON format or comma-separated)."""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                # JSON format: ["http://localhost:3000", "https://example.com"]
+                import json
+                try:
+                    return json.loads(v)
+                except json.JSONDecodeError:
+                    raise ValueError(f"Invalid JSON format for CORS_ORIGINS: {v}")
+            elif v:
+                # Comma-separated format: http://localhost:3000,https://example.com
+                return [origin.strip() for origin in v.split(",")]
+        return []
+
     @property
     def effective_cors_origins(self) -> list[str]:
         """CORS origins including frontend_base_url for production deployments."""
