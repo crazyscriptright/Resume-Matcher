@@ -1,19 +1,29 @@
 """Database models package."""
 
+from app.models.core import (
+    Base,
+    Config,
+    Improvement,
+    Job,
+    Resume,
+    User,
+)
 from app.models.llm_quota import (
     LLMBase,
     LLMModel,
     LLMProviderApiKey,
     LLMRequestQueue,
-    LLMUserSession,
     LLMUsageTracking,
+    LLMUserSession,
 )
-
-# Alias for compatibility
-Base = LLMBase
 
 __all__ = [
     "Base",
+    "Config",
+    "Improvement",
+    "Job",
+    "Resume",
+    "User",
     "LLMBase",
     "LLMModel",
     "LLMProviderApiKey",

@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
         
         # Initialize LLM database for PostgreSQL
         try:
-            from app.db import engine as pg_engine
+            from app.db import _engine as pg_engine
             llm_initializer = LLMDatabaseInitializer(pg_engine)
             llm_initializer.create_tables()
             
