@@ -1,26 +1,26 @@
-{ 
+{
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "outputDirectory": ".next",
   "env": {
-    "BACKEND_ORIGIN": "@backend_origin"
+    "NEXT_PUBLIC_API_URL": "@next_public_api_url"
   },
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "$BACKEND_ORIGIN/api/:path*"
+      "destination": "$NEXT_PUBLIC_API_URL/api/:path*"
     },
     {
       "source": "/docs",
-      "destination": "$BACKEND_ORIGIN/docs"
+      "destination": "$NEXT_PUBLIC_API_URL/docs"
     },
     {
       "source": "/redoc",
-      "destination": "$BACKEND_ORIGIN/redoc"
+      "destination": "$NEXT_PUBLIC_API_URL/redoc"
     },
     {
       "source": "/openapi.json",
-      "destination": "$BACKEND_ORIGIN/openapi.json"
+      "destination": "$NEXT_PUBLIC_API_URL/openapi.json"
     }
   ],
   "headers": [

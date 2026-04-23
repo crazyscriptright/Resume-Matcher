@@ -1,6 +1,6 @@
 import type { NextConfig } from 'next';
 
-const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN || 'http://127.0.0.1:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
@@ -24,19 +24,19 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `${BACKEND_ORIGIN}/api/:path*`,
+        destination: `${API_URL}/api/:path*`,
       },
       {
         source: '/docs',
-        destination: `${BACKEND_ORIGIN}/docs`,
+        destination: `${API_URL}/docs`,
       },
       {
         source: '/redoc',
-        destination: `${BACKEND_ORIGIN}/redoc`,
+        destination: `${API_URL}/redoc`,
       },
       {
         source: '/openapi.json',
-        destination: `${BACKEND_ORIGIN}/openapi.json`,
+        destination: `${API_URL}/openapi.json`,
       },
     ];
   },
