@@ -37,14 +37,8 @@ function resolveRuntimeApiBase(apiBase: string): string {
   return apiBase;
 }
 
-// ============================================================================
-// Exported Environment Configuration
-// ============================================================================
-
 /** Raw API URL from NEXT_PUBLIC_API_URL env var */
-export const API_URL = normalizeApiUrl(
-  process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_PUBLIC_API_URL
-);
+export const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_PUBLIC_API_URL);
 
 /** Full API base URL with /api/v1 suffix */
 export const API_BASE = resolveRuntimeApiBase(toApiBase(API_URL));

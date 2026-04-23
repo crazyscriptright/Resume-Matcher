@@ -28,7 +28,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-uv.lock
+# Note: uv.lock is committed for Heroku/production builds (like package-lock.json)
 
 # SQLite databases
 *.sqlite3
