@@ -7,11 +7,8 @@ from typing import Any, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-# Path to config file for API key persistence
 CONFIG_FILE_PATH = Path(__file__).parent.parent / "data" / "config.json"
 ALLOWED_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
-
 
 def load_config_file() -> dict[str, Any]:
     """Load configuration from config.json file.
@@ -26,17 +23,15 @@ def load_config_file() -> dict[str, Any]:
             return {}
     return {}
 
-
 def save_config_file(config: dict[str, Any]) -> None:
     """Save configuration to config.json file.
 
     Args:
         config: Dictionary with configuration values to save.
     """
-    # Ensure data directory exists
+
     CONFIG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE_PATH.write_text(json.dumps(config, indent=2))
-
 
 def get_api_keys_from_config() -> dict[str, str]:
     """Get API keys from config file.
@@ -47,7 +42,6 @@ def get_api_keys_from_config() -> dict[str, str]:
     config = load_config_file()
     return config.get("api_keys", {})
 
-
 def save_api_keys_to_config(api_keys: dict[str, str]) -> None:
     """Save API keys to config file.
 
@@ -57,7 +51,6 @@ def save_api_keys_to_config(api_keys: dict[str, str]) -> None:
     config = load_config_file()
     config["api_keys"] = api_keys
     save_config_file(config)
-
 
 def delete_api_key_from_config(provider: str) -> None:
     """Delete a specific API key from config file.
@@ -70,16 +63,14 @@ def delete_api_key_from_config(provider: str) -> None:
         del config["api_keys"][provider]
         save_config_file(config)
 
-
 def clear_all_api_keys() -> None:
     """Clear all API keys from config file."""
     config = load_config_file()
-    # Clear plural dict
+
     config["api_keys"] = {}
-    # Clear singular top-level key (legacy support)
+
     config["api_key"] = ""
     save_config_file(config)
-
 
 def _get_llm_api_key_with_fallback() -> str:
     """Get LLM API key with fallback to config file.
@@ -88,16 +79,13 @@ def _get_llm_api_key_with_fallback() -> str:
     """
     import os
 
-    # First check environment variable
     env_key = os.environ.get("LLM_API_KEY", "")
     if env_key:
         return env_key
 
-    # Fallback to config file based on provider
     config_keys = get_api_keys_from_config()
     provider = os.environ.get("LLM_PROVIDER", "openai")
 
-    # Map provider to config key
     provider_map = {
         "openai": "openai",
         "anthropic": "anthropic",
@@ -110,7 +98,6 @@ def _get_llm_api_key_with_fallback() -> str:
     config_provider = provider_map.get(provider, provider)
     return config_keys.get(config_provider, "")
 
-
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
@@ -120,7 +107,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # LLM Configuration
     llm_provider: Literal[
         "openai",
         "openai_compatible",
@@ -132,7 +118,7 @@ class Settings(BaseSettings):
     ] = "openai"
     llm_model: str = "gpt-5-nano-2025-08-07"
     llm_api_key: str = ""
-    llm_api_base: str | None = None  # For Ollama or custom endpoints
+    llm_api_base: str | None = None
     log_llm: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "WARNING"
 
     @field_validator("llm_provider", mode="before")
@@ -152,17 +138,12 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid LOG_LLM: {value}. Allowed: {ALLOWED_LOG_LEVELS}")
         return value
 
-    # Server Configuration
     host: str = "0.0.0.0"
     port: int = 8000
     reload: bool = False
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     frontend_base_url: str = "http://localhost:3000"
 
-    # Reasoning effort for models that support it (OpenAI gpt-5 family,
-    # Anthropic Claude 3.7+, DeepSeek R1, etc.). None means "do not send the
-    # param" — the default for maximum compatibility. LiteLLM drops this
-    # parameter for providers that don't support it (via drop_params=True).
     reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
 
     @field_validator("reasoning_effort", mode="before")
@@ -182,10 +163,10 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid LOG_LEVEL: {value}. Allowed: {ALLOWED_LOG_LEVELS}")
         return value
 
-    # CORS Configuration
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://resumeatsmaster.vercel.app",
     ]
 
     @field_validator("cors_origins", mode="before")
@@ -197,14 +178,15 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             v = v.strip()
             if v.startswith("["):
-                # JSON format: ["http://localhost:3000", "https://example.com"]
                 import json
                 try:
                     return json.loads(v)
                 except json.JSONDecodeError:
-                    raise ValueError(f"Invalid JSON format for CORS_ORIGINS: {v}")
+                    # Fallback for malformed JSON (e.g., missing quotes):
+                    # Strip brackets and then split by comma
+                    inner = v.strip("[]")
+                    return [origin.strip().strip("'\"") for origin in inner.split(",") if origin.strip()]
             elif v:
-                # Comma-separated format: http://localhost:3000,https://example.com
                 return [origin.strip() for origin in v.split(",")]
         return []
 
@@ -217,12 +199,10 @@ class Settings(BaseSettings):
             origins.append(url)
         return origins
 
-    # JWT Configuration
-    jwt_secret_key: str = "your-secret-key-change-in-production"  # Should be set in production via env var
+    jwt_secret_key: str = "your-secret-key-change-in-production"
 
-    # Paths
     data_dir: Path = Path(__file__).parent.parent / "data"
-    database_url: str | None = None  # PostgreSQL connection string, auto-detected from DATABASE_URL env var
+    database_url: str | None = None
 
     @property
     def db_path(self) -> Path:
@@ -247,6 +227,5 @@ class Settings(BaseSettings):
         if self.llm_api_key:
             return self.llm_api_key
         return _get_llm_api_key_with_fallback()
-
 
 settings = Settings()
