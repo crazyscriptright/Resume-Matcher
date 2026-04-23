@@ -4,6 +4,8 @@
  * Single source of truth for API configuration and base fetch utilities.
  */
 
+import { getAuthToken } from '@/lib/auth-token';
+
 const DEFAULT_PUBLIC_API_URL = '/';
 const INTERNAL_API_ORIGIN = 'http://127.0.0.1:8000';
 
@@ -56,13 +58,25 @@ export async function apiFetch(
     url = resolveRuntimeApiBase(normalizedEndpoint);
   }
 
+  // Inject authorization token from localStorage if available
+  const headers = new Headers(options?.headers || {});
+  const token = getAuthToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   // Matches the backend's 240s hard limit (resumes.py wait_for timeout)
   const timeout = timeoutMs ?? 240_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    });
   } finally {
     clearTimeout(timer);
   }

@@ -11,11 +11,13 @@ from pathlib import Path
 from typing import Any, NoReturn
 from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, Depends
 from fastapi.responses import Response
 
+from app.auth import CurrentUserID
 from app.config_cache import get_content_language, load_config as _load_config
-from app.database import db
+from app.db_compat import db, set_context
+from app.dependencies import DBAdapter
 from app.pdf import render_resume_pdf, PDFRenderError
 from app.config import settings
 
@@ -507,12 +509,18 @@ MAX_FILE_SIZE = 4 * 1024 * 1024  # 4MB
 
 
 @router.post("/upload", response_model=ResumeUploadResponse)
-async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
+async def upload_resume(
+    file: UploadFile = File(...),
+    user_id: CurrentUserID = None,
+    db_adapter: DBAdapter = None,
+) -> ResumeUploadResponse:
     """Upload and process a resume file (PDF/DOCX).
 
     Converts the file to Markdown and stores it in the database.
     Optionally parses to structured JSON if LLM is configured.
     """
+    set_context(db_adapter, user_id)
+    
     # Validate file type
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
@@ -568,7 +576,10 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
     except Exception as e:
         # LLM parsing failed, update status to failed
         logger.warning(f"Resume parsing to JSON failed for {file.filename}: {e}")
-        db.update_resume(resume["resume_id"], {"processing_status": "failed"})
+        db.update_resume(
+            resume["resume_id"],
+            {"processing_status": "failed"}
+        )
         resume["processing_status"] = "failed"
 
     # Return accurate status to client (API-001 fix)
@@ -586,13 +597,19 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
 
 
 @router.get("", response_model=ResumeFetchResponse)
-async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
+async def get_resume(
+    resume_id: str = Query(...),
+    user_id: CurrentUserID = None,
+    db_adapter: DBAdapter = None,
+) -> ResumeFetchResponse:
     """Fetch resume details by ID.
 
     Returns both raw markdown and structured data (if available),
     plus cover letter and outreach message if they exist.
     Applies lazy migration for section metadata if needed.
     """
+    set_context(db_adapter, user_id)
+    
     resume = db.get_resume(resume_id)
 
     if not resume:
@@ -636,8 +653,14 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
 
 
 @router.get("/list", response_model=ResumeListResponse)
-async def list_resumes(include_master: bool = Query(False)) -> ResumeListResponse:
+async def list_resumes(
+    include_master: bool = Query(False),
+    user_id: CurrentUserID = None,
+    db_adapter: DBAdapter = None,
+) -> ResumeListResponse:
     """List resumes, optionally including the master resume."""
+    set_context(db_adapter, user_id)
+    
     resumes = db.list_resumes()
     if not include_master:
         resumes = [resume for resume in resumes if not resume.get("is_master", False)]
@@ -664,11 +687,15 @@ async def list_resumes(include_master: bool = Query(False)) -> ResumeListRespons
 @router.post("/improve/preview", response_model=ImproveResumeResponse)
 async def improve_resume_preview_endpoint(
     request: ImproveResumeRequest,
+    user_id: CurrentUserID = None,
+    db_adapter: DBAdapter = None,
 ) -> ImproveResumeResponse:
     """Preview a tailored resume without persisting it.
 
     The response includes resume_preview data but leaves resume_id null.
     """
+    set_context(db_adapter, user_id)
+    
     resume = db.get_resume(request.resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -922,8 +949,12 @@ async def _improve_preview_flow(
 @router.post("/improve/confirm", response_model=ImproveResumeResponse)
 async def improve_resume_confirm_endpoint(
     request: ImproveResumeConfirmRequest,
+    user_id: CurrentUserID = None,
+    db_adapter: DBAdapter = None,
 ) -> ImproveResumeResponse:
     """Confirm and persist a tailored resume."""
+    set_context(db_adapter, user_id)
+    
     resume = db.get_resume(request.resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")

@@ -14,6 +14,7 @@ Welcome! This guide will walk you through setting up Resume Matcher on your loca
   - [1. Clone the Repository](#1-clone-the-repository)
   - [2. Backend Setup](#2-backend-setup)
   - [3. Frontend Setup](#3-frontend-setup)
+- [Database Configuration](#database-configuration)
 - [Configuring Your AI Provider](#configuring-your-ai-provider)
   - [Option A: Cloud Providers](#option-a-cloud-providers)
   - [Option B: Local AI with Ollama](#option-b-local-ai-with-ollama-free)
@@ -122,16 +123,34 @@ code .env   # VS Code
 The most important setting is your AI provider. Here's a minimal configuration for OpenAI:
 
 ```env
+# LLM Configuration (required for resume enrichment)
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-5-nano-2025-08-07
 LLM_API_KEY=sk-your-api-key-here
 
-# Keep these as default for local development
+# Server Configuration (defaults for local development)
 HOST=0.0.0.0
 PORT=8000
 FRONTEND_BASE_URL=http://localhost:3000
 CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"]
+
+# Database Configuration (optional)
+# Leave empty for local TinyDB (single user, development only)
+# For multi-user production use PostgreSQL:
+# DATABASE_URL=postgresql://user:password@localhost:5432/resumematcher
+
+# JWT Configuration (required for authentication)
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+# JWT_SECRET_KEY=your-generated-secret-key-here
 ```
+
+**Database Options:**
+
+- **Local Development (default)**: Leave `DATABASE_URL` empty → Uses TinyDB (JSON file)
+- **Production Multi-User**: Set `DATABASE_URL=postgresql://...` → Uses PostgreSQL
+- **Testing**: Set `DATABASE_URL=sqlite:///./test.db` → Uses SQLite
+
+See [Database Configuration](#database-configuration) below for details on each option.
 
 #### Install Python dependencies
 
@@ -194,6 +213,110 @@ You should see:
 ```
 
 Open **<http://localhost:3000>** in your browser. You should see the Resume Matcher dashboard!
+
+---
+
+## Database Configuration
+
+Resume Matcher supports multiple database options. Choose based on your use case:
+
+### 1. Local Development (TinyDB - Default)
+
+**Best for:** Single-user development, testing, quick prototyping
+
+- ✓ No database installation needed
+- ✓ Works offline
+- ✓ Data stored in `apps/backend/data/database.json`
+- ✗ Single user only, no authentication
+
+**Setup:**
+```bash
+# Simply leave DATABASE_URL empty in .env (or do not set it)
+# DATABASE_URL=
+```
+
+No additional configuration needed!
+
+### 2. Multi-User Production (PostgreSQL)
+
+**Best for:** Heroku deployment, production with multiple users, shared teams
+
+- ✓ Multi-user support with authentication
+- ✓ User data isolation
+- ✓ Scalable for large datasets
+- ✗ Requires database setup
+
+**Setup:**
+
+**Option A: PostgreSQL on Heroku**
+
+```env
+DATABASE_URL=postgresql://user:password@ec2-xxx.compute-1.amazonaws.com:5432/d8xxx
+JWT_SECRET_KEY=your-generated-secret-key
+```
+
+(Heroku provides this automatically when you add the PostgreSQL add-on)
+
+**Option B: Local PostgreSQL Development**
+
+```bash
+# First, install PostgreSQL locally:
+# macOS: brew install postgresql
+# Ubuntu/Debian: sudo apt-get install postgresql postgresql-contrib
+# Windows: https://www.postgresql.org/download/windows/
+
+# Create database and user
+createdb resumematcher
+createuser resumematcher --pwprompt
+
+# Or with psql
+psql
+> CREATE DATABASE resumematcher;
+> CREATE USER resumematcher WITH PASSWORD 'your-password';
+> ALTER ROLE resumematcher SET client_encoding TO 'utf8';
+> ALTER ROLE resumematcher SET default_transaction_isolation TO 'read committed';
+> ALTER ROLE resumematcher SET default_transaction_deferrable TO on;
+> ALTER ROLE resumematcher SET default_transaction_read_uncommitted TO off;
+> GRANT ALL PRIVILEGES ON DATABASE resumematcher TO resumematcher;
+```
+
+Then update `.env`:
+
+```env
+DATABASE_URL=postgresql://resumematcher:your-password@localhost:5432/resumematcher
+JWT_SECRET_KEY=your-generated-secret-key
+```
+
+### 3. Testing (SQLite)
+
+**Best for:** Unit tests, CI/CD pipelines
+
+```env
+DATABASE_URL=sqlite:///./test.db
+JWT_SECRET_KEY=test-key-minimum-32-characters
+```
+
+### Generating a Secure JWT_SECRET_KEY
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Copy the output and paste it into your `.env`:
+
+```env
+JWT_SECRET_KEY=your-generated-key-here
+```
+
+### Verify Database Connection
+
+After configuring, test the database:
+
+```bash
+cd apps/backend
+# Activate venv or use uv
+uv run python -c "from app.config import settings; print(f'✓ Using {settings.database_type if settings.is_postgres else \"TinyDB\"} database')"
+```
 
 ---
 

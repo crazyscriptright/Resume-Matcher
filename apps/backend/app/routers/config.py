@@ -4,9 +4,12 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 
+from app.auth import CurrentUserID
 from app.config import settings
+from app.db_compat import db, set_context
+from app.dependencies import DBAdapter
 from app.llm import check_llm_health, LLMConfig, resolve_api_key
 from app.schemas import (
     LLMConfigRequest,
@@ -39,7 +42,6 @@ from app.config import (
     clear_all_api_keys,
 )
 from app.config_cache import invalidate_config_cache
-from app.database import db
 
 router = APIRouter(prefix="/config", tags=["Configuration"])
 

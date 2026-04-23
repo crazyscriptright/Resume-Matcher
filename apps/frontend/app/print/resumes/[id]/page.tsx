@@ -1,17 +1,17 @@
 import Resume, { ResumeData } from '@/components/dashboard/resume-component';
-import {
-  type TemplateType,
-  type PageSize,
-  type TemplateSettings,
-  type SpacingLevel,
-  type HeaderFontFamily,
-  type BodyFontFamily,
-  type AccentColor,
-  DEFAULT_TEMPLATE_SETTINGS,
-} from '@/lib/types/template-settings';
 import { API_BASE } from '@/lib/api/client';
-import { translate } from '@/lib/i18n/server';
 import { resolveLocale } from '@/lib/i18n/locale';
+import { translate } from '@/lib/i18n/server';
+import {
+    type AccentColor,
+    type BodyFontFamily,
+    DEFAULT_TEMPLATE_SETTINGS,
+    type HeaderFontFamily,
+    type PageSize,
+    type SpacingLevel,
+    type TemplateSettings,
+    type TemplateType,
+} from '@/lib/types/template-settings';
 import { withLocalizedDefaultSections } from '@/lib/utils/section-helpers';
 
 type PageProps = {
@@ -78,6 +78,7 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
 
 async function fetchResumeData(id: string): Promise<ResumeData> {
   const res = await fetch(`${API_BASE}/resumes?resume_id=${encodeURIComponent(id)}`, {
+    credentials: 'include', // Send auth cookie
     cache: 'no-store',
   });
   if (!res.ok) {

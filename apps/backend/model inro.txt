@@ -1,0 +1,23 @@
+Gemini 2.5 Flash Lite, Gemini 2.5 Flash, Gemini 3 Flash, 
+
+RPM
+TPM
+RPD
+0 / 5
+0 / 250K
+0 / 20
+
+gpt-4o-mini-2024-07-18, gpt-4.1-mini-2025-04-14,gpt-5-nano-2025-08-07(40,000 rpm), gpt-5-mini-2025-08-07, gpt-5-pro-2025-10-06(30,000 rmp)
+60,000 TPM
+3 RPM
+200 RPD
+200,000 TPD
+
+gpt-5-pro-2025-10-06
+Gemini 3 Flash
+gpt-5-mini-2025-08-07
+gpt-4.1-mini-2025-04-14
+Gemini 2.5 Flash
+gpt-5-nano-2025-08-07
+Gemini 2.5 Flash Lite
+gpt-4o-mini-2024-07-18

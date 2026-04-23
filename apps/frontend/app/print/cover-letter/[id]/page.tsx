@@ -6,8 +6,8 @@
  */
 
 import { API_BASE } from '@/lib/api/client';
-import { translate } from '@/lib/i18n/server';
 import { resolveLocale } from '@/lib/i18n/locale';
+import { translate } from '@/lib/i18n/server';
 
 const PAGE_DIMENSIONS = {
   A4: { width: 210, height: 297 },
@@ -39,6 +39,7 @@ interface CoverLetterData {
 
 async function fetchCoverLetterData(resumeId: string): Promise<CoverLetterData> {
   const res = await fetch(`${API_BASE}/resumes?resume_id=${encodeURIComponent(resumeId)}`, {
+    credentials: 'include', // Send auth cookie
     cache: 'no-store',
   });
   if (!res.ok) {

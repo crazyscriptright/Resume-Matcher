@@ -1,13 +1,14 @@
 'use client';
 
+import { getAuthToken } from '@/lib/auth-token';
 import type React from 'react';
 import {
-  useCallback,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type DragEvent,
-  type InputHTMLAttributes,
+    useCallback,
+    useRef,
+    useState,
+    type ChangeEvent,
+    type DragEvent,
+    type InputHTMLAttributes,
 } from 'react';
 
 export type FileMetadata = {
@@ -226,9 +227,18 @@ export const useFileUpload = (
       markUploadStarted();
 
       try {
+        // Inject authorization token from auth token utility
+        const headers = new Headers();
+        const token = getAuthToken();
+        if (token) {
+          headers.set('Authorization', `Bearer ${token}`);
+        }
+
         const response = await fetch(uploadUrl, {
           method: 'POST',
           body: formData,
+          headers,
+          credentials: 'include',
         });
 
         let responseData: Record<string, unknown> = {}; // Initialize for broader scope

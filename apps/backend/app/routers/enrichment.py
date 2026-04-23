@@ -7,10 +7,12 @@ import logging
 import re
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
+from app.auth import CurrentUserID
 from app.config_cache import get_content_language
-from app.database import db
+from app.db_compat import db, set_context
+from app.dependencies import DBAdapter
 from app.llm import complete_json
 from app.prompts.enrichment import (
     ANALYZE_RESUME_PROMPT,
@@ -85,12 +87,18 @@ def _extract_item_from_resume(processed_data: dict, item_id: str) -> dict:
 
 
 @router.post("/analyze/{resume_id}", response_model=AnalysisResponse)
-async def analyze_resume(resume_id: str) -> AnalysisResponse:
+async def analyze_resume(
+    resume_id: str,
+    user_id: CurrentUserID,
+    db_adapter: DBAdapter,
+) -> AnalysisResponse:
     """Analyze a resume to identify items that need enrichment.
 
     Uses AI to examine Experience and Projects sections for weak,
     vague, or incomplete descriptions and generates clarifying questions.
     """
+    set_context(db_adapter, user_id)
+    
     # Fetch resume
     resume = db.get_resume(resume_id)
     if not resume:
@@ -155,12 +163,18 @@ async def analyze_resume(resume_id: str) -> AnalysisResponse:
 
 
 @router.post("/enhance", response_model=EnhancementPreview)
-async def generate_enhancements(request: EnhanceRequest) -> EnhancementPreview:
+async def generate_enhancements(
+    request: EnhanceRequest,
+    user_id: CurrentUserID,
+    db_adapter: DBAdapter,
+) -> EnhancementPreview:
     """Generate enhanced descriptions from user answers.
 
     Takes the answers to clarifying questions and uses AI to generate
     improved description bullets for each item.
     """
+    set_context(db_adapter, user_id)
+    
     # Fetch resume
     resume = db.get_resume(request.resume_id)
     if not resume:
@@ -297,13 +311,18 @@ async def generate_enhancements(request: EnhanceRequest) -> EnhancementPreview:
 
 @router.post("/apply/{resume_id}")
 async def apply_enhancements(
-    resume_id: str, request: ApplyEnhancementsRequest
+    resume_id: str,
+    request: ApplyEnhancementsRequest,
+    user_id: CurrentUserID,
+    db_adapter: DBAdapter,
 ) -> dict:
     """Apply enhancements to the master resume.
 
     Updates the resume's Experience and Projects sections with
     the enhanced descriptions.
     """
+    set_context(db_adapter, user_id)
+    
     # Fetch resume
     resume = db.get_resume(resume_id)
     if not resume:
@@ -455,12 +474,18 @@ async def _regenerate_skills(
 
 
 @router.post("/regenerate", response_model=RegenerateResponse)
-async def regenerate_items(request: RegenerateRequest) -> RegenerateResponse:
+async def regenerate_items(
+    request: RegenerateRequest,
+    user_id: CurrentUserID,
+    db_adapter: DBAdapter,
+) -> RegenerateResponse:
     """Regenerate selected resume items based on user feedback.
 
     Takes selected items (experience, projects, skills) and a user instruction,
     then uses AI to rewrite the content addressing the user's concerns.
     """
+    set_context(db_adapter, user_id)
+    
     # Validate resume exists
     resume = db.get_resume(request.resume_id)
     if not resume:
@@ -516,13 +541,18 @@ async def regenerate_items(request: RegenerateRequest) -> RegenerateResponse:
 
 @router.post("/apply-regenerated/{resume_id}")
 async def apply_regenerated_items(
-    resume_id: str, regenerated_items: list[RegeneratedItem]
+    resume_id: str,
+    regenerated_items: list[RegeneratedItem],
+    user_id: CurrentUserID,
+    db_adapter: DBAdapter,
 ) -> dict:
     """Apply regenerated items to the master resume.
 
     Updates the resume's Experience, Projects, and Skills sections with
     the regenerated descriptions.
     """
+    set_context(db_adapter, user_id)
+    
     # Fetch resume
     resume = db.get_resume(resume_id)
     if not resume:

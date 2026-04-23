@@ -197,8 +197,12 @@ class Settings(BaseSettings):
             origins.append(url)
         return origins
 
+    # JWT Configuration
+    jwt_secret_key: str = "your-secret-key-change-in-production"  # Should be set in production via env var
+
     # Paths
     data_dir: Path = Path(__file__).parent.parent / "data"
+    database_url: str | None = None  # PostgreSQL connection string, auto-detected from DATABASE_URL env var
 
     @property
     def db_path(self) -> Path:
@@ -209,6 +213,11 @@ class Settings(BaseSettings):
     def config_path(self) -> Path:
         """Path to config storage file."""
         return self.data_dir / "config.json"
+
+    @property
+    def is_postgres(self) -> bool:
+        """Check if using PostgreSQL (DATABASE_URL set)."""
+        return bool(self.database_url)
 
     def get_effective_api_key(self) -> str:
         """Get the effective API key with config file fallback.
