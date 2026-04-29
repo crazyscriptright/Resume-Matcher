@@ -137,10 +137,12 @@ async function postImprove(
 /** Uploads job descriptions and returns a job_id */
 export async function uploadJobDescriptions(
   descriptions: string[],
-  resumeId: string
+  resumeId: string,
+  titles?: (string | null)[]
 ): Promise<string> {
   const res = await apiPost('/jobs/upload', {
     job_descriptions: descriptions,
+    job_titles: titles,
     resume_id: resumeId,
   });
   if (!res.ok) throw new Error(`Upload failed with status ${res.status}`);
