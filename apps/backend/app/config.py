@@ -1,45 +1,112 @@
-"""Application configuration using pydantic-settings."""
+"""Application configuration using pydantic-settings.
+
+Config persistence uses Firebase Firestore (collection: ``app_config``,
+document: ``main``) so nothing is stored on the local filesystem.
+This is critical for ephemeral hosting (Heroku dynos, Railway, etc.).
+"""
 
 import json
+import logging
+import os
 from pathlib import Path
 from typing import Any, Literal
 
+import firebase_admin
+from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-# Path to config file for API key persistence
-CONFIG_FILE_PATH = Path(__file__).parent.parent / "data" / "config.json"
 ALLOWED_LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
+
+logger = logging.getLogger(__name__)
+
+
+# ── Firestore-backed config storage ─────────────────────────────────────────
+
+_firestore_client = None
+
+def _get_firestore_client():
+    """Get or initialize the Firestore client.
+
+    Re-uses the same Firebase app as the database module (both call
+    ``firebase_admin.get_app()`` first).
+    """
+    global _firestore_client
+    if _firestore_client is not None:
+        return _firestore_client
+
+    raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
+    if not raw:
+        logger.warning(
+            "FIREBASE_SERVICE_ACCOUNT not set — config will use in-memory fallback"
+        )
+        return None
+
+    try:
+        service_account_info = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error("FIREBASE_SERVICE_ACCOUNT is not valid JSON: %s", e)
+        return None
+
+    cred = credentials.Certificate(service_account_info)
+    try:
+        firebase_admin.get_app()
+    except ValueError:
+        firebase_admin.initialize_app(cred)
+
+    _firestore_client = firestore.client()
+    return _firestore_client
+
+
+# In-memory fallback when Firestore is unavailable (dev / testing)
+_memory_config: dict[str, Any] = {}
+
+CONFIG_COLLECTION = "app_config"
+CONFIG_DOC_ID = "main"
 
 
 def load_config_file() -> dict[str, Any]:
-    """Load configuration from config.json file.
+    """Load configuration from Firestore.
 
     Returns:
-        Dictionary with configuration values, empty dict if file doesn't exist.
+        Dictionary with configuration values, empty dict if not found.
     """
-    if CONFIG_FILE_PATH.exists():
-        try:
-            return json.loads(CONFIG_FILE_PATH.read_text())
-        except (json.JSONDecodeError, OSError):
-            return {}
-    return {}
+    client = _get_firestore_client()
+    if client is None:
+        return dict(_memory_config)
+
+    try:
+        doc = client.collection(CONFIG_COLLECTION).document(CONFIG_DOC_ID).get()
+        if doc.exists:
+            return doc.to_dict() or {}
+        return {}
+    except Exception as e:
+        logger.error("Failed to load config from Firestore: %s", e)
+        return {}
 
 
 def save_config_file(config: dict[str, Any]) -> None:
-    """Save configuration to config.json file.
+    """Save configuration to Firestore.
 
     Args:
         config: Dictionary with configuration values to save.
     """
-    # Ensure data directory exists
-    CONFIG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE_PATH.write_text(json.dumps(config, indent=2))
+    global _memory_config
+
+    client = _get_firestore_client()
+    if client is None:
+        _memory_config = dict(config)
+        return
+
+    try:
+        client.collection(CONFIG_COLLECTION).document(CONFIG_DOC_ID).set(config)
+    except Exception as e:
+        logger.error("Failed to save config to Firestore: %s", e)
 
 
 def get_api_keys_from_config() -> dict[str, str]:
-    """Get API keys from config file.
+    """Get API keys from config.
 
     Returns:
         Dictionary with provider names as keys and API keys as values.
@@ -49,7 +116,7 @@ def get_api_keys_from_config() -> dict[str, str]:
 
 
 def save_api_keys_to_config(api_keys: dict[str, str]) -> None:
-    """Save API keys to config file.
+    """Save API keys to config.
 
     Args:
         api_keys: Dictionary with provider names as keys and API keys as values.
@@ -60,7 +127,7 @@ def save_api_keys_to_config(api_keys: dict[str, str]) -> None:
 
 
 def delete_api_key_from_config(provider: str) -> None:
-    """Delete a specific API key from config file.
+    """Delete a specific API key from config.
 
     Args:
         provider: The provider name to delete.
@@ -72,7 +139,7 @@ def delete_api_key_from_config(provider: str) -> None:
 
 
 def clear_all_api_keys() -> None:
-    """Clear all API keys from config file."""
+    """Clear all API keys from config."""
     config = load_config_file()
     # Clear plural dict
     config["api_keys"] = {}
@@ -82,18 +149,16 @@ def clear_all_api_keys() -> None:
 
 
 def _get_llm_api_key_with_fallback() -> str:
-    """Get LLM API key with fallback to config file.
+    """Get LLM API key with fallback to config.
 
-    Priority: Environment variable > config.json > empty string
+    Priority: Environment variable > Firestore config > empty string
     """
-    import os
-
     # First check environment variable
     env_key = os.environ.get("LLM_API_KEY", "")
     if env_key:
         return env_key
 
-    # Fallback to config file based on provider
+    # Fallback to config based on provider
     config_keys = get_api_keys_from_config()
     provider = os.environ.get("LLM_PROVIDER", "openai")
 
@@ -202,18 +267,18 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> Path:
-        """Path to TinyDB database file."""
+        """Path to database file (legacy — kept for compatibility)."""
         return self.data_dir / "database.json"
 
     @property
     def config_path(self) -> Path:
-        """Path to config storage file."""
+        """Path to config storage file (legacy — kept for compatibility)."""
         return self.data_dir / "config.json"
 
     def get_effective_api_key(self) -> str:
-        """Get the effective API key with config file fallback.
+        """Get the effective API key with config fallback.
 
-        Priority: Environment/settings value > config.json > empty string
+        Priority: Environment/settings value > Firestore config > empty string
         """
         if self.llm_api_key:
             return self.llm_api_key

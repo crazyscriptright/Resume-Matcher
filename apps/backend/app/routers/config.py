@@ -1,8 +1,6 @@
 """LLM configuration endpoints."""
 
-import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
@@ -44,25 +42,18 @@ from app.database import db
 router = APIRouter(prefix="/config", tags=["Configuration"])
 
 
-def _get_config_path() -> Path:
-    """Get path to config storage file."""
-    return settings.config_path
-
-
 def _load_config() -> dict:
-    """Load config from file."""
-    path = _get_config_path()
-    if path.exists():
-        return json.loads(path.read_text())
-    return {}
+    """Load config from Firestore."""
+    from app.config import load_config_file
+    return load_config_file()
 
 
 def _save_config(config: dict) -> None:
-    """Save config to file and invalidate the resume router's cache."""
-    path = _get_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config, indent=2))
+    """Save config to Firestore and invalidate the resume router's cache."""
+    from app.config import save_config_file
+    save_config_file(config)
     invalidate_config_cache()
+
 
 
 def _mask_api_key(key: str) -> str:

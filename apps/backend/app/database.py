@@ -1,59 +1,97 @@
-"""TinyDB database layer for JSON storage."""
+"""Firebase Firestore database layer for JSON storage."""
 
 import asyncio
+import json
 import logging
+import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from tinydb import Query, TinyDB
-from tinydb.table import Table
+import firebase_admin
+from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
+def _init_firebase() -> firestore.firestore.Client:
+    """Initialize Firebase Admin SDK from FIREBASE_SERVICE_ACCOUNT env var.
+
+    The env var must contain a JSON string with the service account credentials.
+    Returns a Firestore client.
+    """
+    raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
+    if not raw:
+        raise RuntimeError(
+            "FIREBASE_SERVICE_ACCOUNT environment variable is not set. "
+            "Set it to a JSON string containing your Firebase service account credentials."
+        )
+
+    try:
+        service_account_info = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"FIREBASE_SERVICE_ACCOUNT is not valid JSON: {e}"
+        ) from e
+
+    cred = credentials.Certificate(service_account_info)
+
+    # Only initialize if not already done (prevents duplicate-app errors on reload)
+    try:
+        firebase_admin.get_app()
+    except ValueError:
+        firebase_admin.initialize_app(cred)
+
+    return firestore.client()
+
+
 class Database:
-    """TinyDB wrapper for resume matcher data."""
+    """Firestore wrapper for resume matcher data.
+
+    Mirrors the original TinyDB API so all routers work without changes.
+    Each 'table' is a Firestore top-level collection.
+    """
 
     _master_resume_lock = asyncio.Lock()
 
-    def __init__(self, db_path: Path | None = None):
-        self.db_path = db_path or settings.db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db: TinyDB | None = None
+    # Collection names
+    RESUMES = "resumes"
+    JOBS = "jobs"
+    IMPROVEMENTS = "improvements"
+
+    def __init__(self) -> None:
+        self._client: firestore.firestore.Client | None = None
 
     @property
-    def db(self) -> TinyDB:
-        """Lazy initialization of TinyDB instance."""
-        if self._db is None:
-            self._db = TinyDB(self.db_path)
-        return self._db
+    def client(self) -> firestore.firestore.Client:
+        """Lazy initialization of Firestore client."""
+        if self._client is None:
+            self._client = _init_firebase()
+            logger.info("Firestore client initialized successfully")
+        return self._client
 
-    @property
-    def resumes(self) -> Table:
-        """Resumes table."""
-        return self.db.table("resumes")
+    # ── helpers ──────────────────────────────────────────────────────────
 
-    @property
-    def jobs(self) -> Table:
-        """Job descriptions table."""
-        return self.db.table("jobs")
+    def _col(self, name: str):
+        """Shorthand for collection reference."""
+        return self.client.collection(name)
 
-    @property
-    def improvements(self) -> Table:
-        """Improvement results table."""
-        return self.db.table("improvements")
+    @staticmethod
+    def _doc_to_dict(doc_snapshot) -> dict[str, Any] | None:
+        """Convert a Firestore DocumentSnapshot to a plain dict."""
+        if doc_snapshot.exists:
+            return doc_snapshot.to_dict()
+        return None
 
     def close(self) -> None:
-        """Close database connection."""
-        if self._db is not None:
-            self._db.close()
-            self._db = None
+        """Close database connection (no-op for Firestore — kept for API compat)."""
+        self._client = None
 
-    # Resume operations
+    # ── Resume operations ────────────────────────────────────────────────
+
     def create_resume(
         self,
         content: str,
@@ -92,7 +130,8 @@ class Database:
         }
         if original_markdown is not None:
             doc["original_markdown"] = original_markdown
-        self.resumes.insert(doc)
+
+        self._col(self.RESUMES).document(resume_id).set(doc)
         return doc
 
     async def create_resume_atomic_master(
@@ -119,11 +158,9 @@ class Database:
             # Recovery behavior: if the current master is stuck in failed or
             # processing state, promote the next upload to become the new master.
             if current_master and current_master.get("processing_status") in ("failed", "processing"):
-                Resume = Query()
-                self.resumes.update(
-                    {"is_master": False},
-                    Resume.resume_id == current_master["resume_id"],
-                )
+                self._col(self.RESUMES).document(
+                    current_master["resume_id"]
+                ).update({"is_master": False})
                 is_master = True
 
             return self.create_resume(
@@ -140,15 +177,20 @@ class Database:
 
     def get_resume(self, resume_id: str) -> dict[str, Any] | None:
         """Get resume by ID."""
-        Resume = Query()
-        result = self.resumes.search(Resume.resume_id == resume_id)
-        return result[0] if result else None
+        doc = self._col(self.RESUMES).document(resume_id).get()
+        return self._doc_to_dict(doc)
 
     def get_master_resume(self) -> dict[str, Any] | None:
         """Get the master resume if exists."""
-        Resume = Query()
-        result = self.resumes.search(Resume.is_master == True)
-        return result[0] if result else None
+        docs = (
+            self._col(self.RESUMES)
+            .where(filter=FieldFilter("is_master", "==", True))
+            .limit(1)
+            .stream()
+        )
+        for doc in docs:
+            return doc.to_dict()
+        return None
 
     def update_resume(self, resume_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update resume by ID.
@@ -156,12 +198,14 @@ class Database:
         Raises:
             ValueError: If resume not found.
         """
-        Resume = Query()
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-        updated_count = self.resumes.update(updates, Resume.resume_id == resume_id)
+        doc_ref = self._col(self.RESUMES).document(resume_id)
 
-        if not updated_count:
+        # Verify existence before updating
+        if not doc_ref.get().exists:
             raise ValueError(f"Resume not found: {resume_id}")
+
+        doc_ref.update(updates)
 
         result = self.get_resume(resume_id)
         if not result:
@@ -171,36 +215,43 @@ class Database:
 
     def delete_resume(self, resume_id: str) -> bool:
         """Delete resume by ID."""
-        Resume = Query()
-        removed = self.resumes.remove(Resume.resume_id == resume_id)
-        return len(removed) > 0
+        doc_ref = self._col(self.RESUMES).document(resume_id)
+        if not doc_ref.get().exists:
+            return False
+        doc_ref.delete()
+        return True
 
     def list_resumes(self) -> list[dict[str, Any]]:
         """List all resumes."""
-        return list(self.resumes.all())
+        docs = self._col(self.RESUMES).stream()
+        return [doc.to_dict() for doc in docs]
 
     def set_master_resume(self, resume_id: str) -> bool:
         """Set a resume as the master, unsetting any existing master.
 
         Returns False if the resume doesn't exist.
         """
-        Resume = Query()
-
         # First verify the target resume exists
-        target = self.resumes.search(Resume.resume_id == resume_id)
-        if not target:
+        target_ref = self._col(self.RESUMES).document(resume_id)
+        if not target_ref.get().exists:
             logger.warning("Cannot set master: resume %s not found", resume_id)
             return False
 
-        # Unset current master
-        self.resumes.update({"is_master": False}, Resume.is_master == True)
-        # Set new master
-        updated = self.resumes.update(
-            {"is_master": True}, Resume.resume_id == resume_id
+        # Unset current master(s)
+        masters = (
+            self._col(self.RESUMES)
+            .where(filter=FieldFilter("is_master", "==", True))
+            .stream()
         )
-        return len(updated) > 0
+        for doc in masters:
+            doc.reference.update({"is_master": False})
 
-    # Job operations
+        # Set new master
+        target_ref.update({"is_master": True})
+        return True
+
+    # ── Job operations ───────────────────────────────────────────────────
+
     def create_job(self, content: str, resume_id: str | None = None) -> dict[str, Any]:
         """Create a new job description entry."""
         job_id = str(uuid4())
@@ -212,24 +263,24 @@ class Database:
             "resume_id": resume_id,
             "created_at": now,
         }
-        self.jobs.insert(doc)
+        self._col(self.JOBS).document(job_id).set(doc)
         return doc
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Get job by ID."""
-        Job = Query()
-        result = self.jobs.search(Job.job_id == job_id)
-        return result[0] if result else None
+        doc = self._col(self.JOBS).document(job_id).get()
+        return self._doc_to_dict(doc)
 
     def update_job(self, job_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
         """Update a job by ID."""
-        Job = Query()
-        updated = self.jobs.update(updates, Job.job_id == job_id)
-        if not updated:
+        doc_ref = self._col(self.JOBS).document(job_id)
+        if not doc_ref.get().exists:
             return None
+        doc_ref.update(updates)
         return self.get_job(job_id)
 
-    # Improvement operations
+    # ── Improvement operations ───────────────────────────────────────────
+
     def create_improvement(
         self,
         original_resume_id: str,
@@ -249,7 +300,7 @@ class Database:
             "improvements": improvements,
             "created_at": now,
         }
-        self.improvements.insert(doc)
+        self._col(self.IMPROVEMENTS).document(request_id).set(doc)
         return doc
 
     def get_improvement_by_tailored_resume(
@@ -260,28 +311,34 @@ class Database:
         This is used to retrieve the job context for on-demand
         cover letter and outreach message generation.
         """
-        Improvement = Query()
-        result = self.improvements.search(
-            Improvement.tailored_resume_id == tailored_resume_id
+        docs = (
+            self._col(self.IMPROVEMENTS)
+            .where(filter=FieldFilter("tailored_resume_id", "==", tailored_resume_id))
+            .limit(1)
+            .stream()
         )
-        return result[0] if result else None
+        for doc in docs:
+            return doc.to_dict()
+        return None
 
-    # Stats
+    # ── Stats ────────────────────────────────────────────────────────────
+
     def get_stats(self) -> dict[str, Any]:
         """Get database statistics."""
         return {
-            "total_resumes": len(self.resumes),
-            "total_jobs": len(self.jobs),
-            "total_improvements": len(self.improvements),
+            "total_resumes": len(list(self._col(self.RESUMES).stream())),
+            "total_jobs": len(list(self._col(self.JOBS).stream())),
+            "total_improvements": len(list(self._col(self.IMPROVEMENTS).stream())),
             "has_master_resume": self.get_master_resume() is not None,
         }
 
     def reset_database(self) -> None:
-        """Reset the database by truncating all tables and clearing uploads."""
-        # Truncate tables
-        self.resumes.truncate()
-        self.jobs.truncate()
-        self.improvements.truncate()
+        """Reset the database by deleting all documents and clearing uploads."""
+        # Delete all documents in each collection
+        for collection_name in (self.RESUMES, self.JOBS, self.IMPROVEMENTS):
+            docs = self._col(collection_name).stream()
+            for doc in docs:
+                doc.reference.delete()
 
         # Clear uploads directory
         uploads_dir = settings.data_dir / "uploads"
