@@ -461,24 +461,41 @@ def _config_fingerprint(config: LLMConfig) -> str:
 
 
 def _build_router(config: LLMConfig) -> Router:
-    """Build a LiteLLM Router with error-type retry policies."""
+    """Build a LiteLLM Router with error-type retry policies.
+    
+    Supports multiple API keys separated by commas for automatic rate-limit fallbacks.
+    """
     model_name = get_model_name(config)
 
-    litellm_params: dict[str, Any] = {"model": model_name}
     effective_key = _effective_api_key(config.provider, config.api_key)
-    if effective_key:
-        litellm_params["api_key"] = effective_key
     api_base = _normalize_api_base(config.provider, config.api_base)
-    if api_base:
-        litellm_params["api_base"] = api_base
+    
+    # Split comma-separated keys if present (for automatic fallback)
+    if effective_key and "," in effective_key:
+        keys = [k.strip() for k in effective_key.split(",") if k.strip()]
+    else:
+        keys = [effective_key]
+
+    model_list = []
+    for key in keys:
+        litellm_params: dict[str, Any] = {"model": model_name}
+        if key:
+            litellm_params["api_key"] = key
+        if api_base:
+            litellm_params["api_base"] = api_base
+            
+        model_list.append({
+            "model_name": "primary",
+            "litellm_params": litellm_params,
+        })
+
+    # Disable cooldowns if we only have 1 deployment so we don't completely
+    # blackout the backend on a transient error. If we have multiple keys,
+    # cooldowns allow LiteLLM to temporarily skip the rate-limited key and use the next one.
+    disable_cooldowns = len(model_list) <= 1
 
     return Router(
-        model_list=[
-            {
-                "model_name": "primary",
-                "litellm_params": litellm_params,
-            }
-        ],
+        model_list=model_list,
         num_retries=3,
         retry_policy=RetryPolicy(
             AuthenticationErrorRetries=0,
@@ -488,10 +505,7 @@ def _build_router(config: LLMConfig) -> Router:
             ContentPolicyViolationErrorRetries=0,
             InternalServerErrorRetries=2,
         ),
-        # Cooldowns disabled: with a single deployment and no fallback,
-        # cooldowns would blackout the backend on transient failures.
-        # Re-enable when a fallback deployment is added.
-        disable_cooldowns=True,
+        disable_cooldowns=disable_cooldowns,
     )
 
 
@@ -544,20 +558,18 @@ async def check_llm_health(
     prompt = test_prompt or "Hi"
 
     try:
-        # Make a minimal test call with timeout
-        # Pass API key directly to avoid race conditions with global os.environ
+        # Use the router to test the exact setup (including multi-key fallbacks)
+        router, _ = get_router(config)
         kwargs: dict[str, Any] = {
-            "model": model_name,
+            "model": "primary",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 64,
-            "api_key": _effective_api_key(config.provider, config.api_key),
-            "api_base": _normalize_api_base(config.provider, config.api_base),
             "timeout": LLM_TIMEOUT_HEALTH_CHECK,
         }
         if config.reasoning_effort:
             kwargs["reasoning_effort"] = config.reasoning_effort
 
-        response = await litellm.acompletion(**kwargs)
+        response = await router.acompletion(**kwargs)
         content = _extract_choice_text(response.choices[0])
         if not content:
             # LLM-003: Empty response (even after reasoning_content / thinking
