@@ -19,13 +19,16 @@ async def upload_job_descriptions(request: JobUploadRequest) -> JobUploadRespons
         raise HTTPException(status_code=400, detail="No job descriptions provided")
 
     job_ids = []
-    for jd in request.job_descriptions:
+    job_titles = request.job_titles or ([None] * len(request.job_descriptions))
+    
+    for jd, title in zip(request.job_descriptions, job_titles):
         if not jd.strip():
             raise HTTPException(status_code=400, detail="Empty job description")
 
         job = db.create_job(
             content=jd.strip(),
             resume_id=request.resume_id,
+            title=title.strip() if title and title.strip() else None,
         )
         job_ids.append(job["job_id"])
 

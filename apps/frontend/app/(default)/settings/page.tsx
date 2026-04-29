@@ -1,62 +1,63 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import {
-  fetchLlmConfig,
-  updateLlmConfig,
-  testLlmConnection,
-  fetchFeatureConfig,
-  updateFeatureConfig,
-  fetchPromptConfig,
-  updatePromptConfig,
-  clearAllApiKeys,
-  resetDatabase,
-  PROVIDER_INFO,
-  fetchFeaturePrompts,
-  updateFeaturePrompts,
-  FeaturePromptsError,
-  type LLMConfigUpdate,
-  type LLMProvider,
-  type LLMHealthCheck,
-  type PromptOption,
-  type ReasoningEffort,
-  type FeaturePromptsUpdate,
-} from '@/lib/api/config';
-import { API_URL } from '@/lib/api/client';
-import { getVersionString } from '@/lib/config/version';
-import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { useStatusCache } from '@/lib/context/status-cache';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dropdown } from '@/components/ui/dropdown';
-import {
-  Save,
-  Key,
-  Database,
-  Activity,
-  Loader2,
-  ArrowLeft,
-  CheckCircle2,
-  XCircle,
-  RefreshCw,
-  Server,
-  FileText,
-  Briefcase,
-  Sparkles,
-  Clock,
-  Settings2,
-  Globe,
-  Trash2,
-  AlertTriangle,
-} from 'lucide-react';
-import { useLanguage } from '@/lib/context/language-context';
-import { useTranslations } from '@/lib/i18n';
-import type { SupportedLanguage } from '@/lib/api/config';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import type { Locale } from '@/i18n/config';
+import { API_URL } from '@/lib/api/client';
+import type { SupportedLanguage } from '@/lib/api/config';
+import {
+    FeaturePromptsError,
+    PROVIDER_INFO,
+    clearAllApiKeys,
+    fetchFeatureConfig,
+    fetchFeaturePrompts,
+    fetchLlmConfig,
+    fetchPromptConfig,
+    resetDatabase,
+    testLlmConnection,
+    updateFeatureConfig,
+    updateFeaturePrompts,
+    updateLlmConfig,
+    updatePromptConfig,
+    type FeaturePromptsUpdate,
+    type LLMConfigUpdate,
+    type LLMHealthCheck,
+    type LLMProvider,
+    type PromptOption,
+    type ReasoningEffort,
+} from '@/lib/api/config';
+import { clearStoredMasterResumeId, getStoredAuthUser } from '@/lib/auth/session';
+import { getVersionString } from '@/lib/config/version';
+import { useLanguage } from '@/lib/context/language-context';
+import { useStatusCache } from '@/lib/context/status-cache';
+import { useTranslations } from '@/lib/i18n';
+import {
+    Activity,
+    AlertTriangle,
+    ArrowLeft,
+    Briefcase,
+    CheckCircle2,
+    Clock,
+    Database,
+    FileText,
+    Globe,
+    Key,
+    Loader2,
+    RefreshCw,
+    Save,
+    Server,
+    Settings2,
+    Sparkles,
+    Trash2,
+    XCircle,
+} from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 
 type Status = 'idle' | 'loading' | 'saving' | 'saved' | 'error' | 'testing';
 
@@ -533,7 +534,7 @@ export default function SettingsPage() {
       await resetDatabase();
 
       // Clear all related localStorage keys
-      localStorage.removeItem('master_resume_id');
+      clearStoredMasterResumeId(getStoredAuthUser()?.user_id ?? null);
       localStorage.removeItem('resume_builder_draft');
       localStorage.removeItem('resume_builder_settings');
       localStorage.removeItem('resume_matcher_content_language');

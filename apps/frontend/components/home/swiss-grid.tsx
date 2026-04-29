@@ -4,9 +4,12 @@ import React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n';
+import { getStoredAuthUser } from '@/lib/auth/session';
 
 export const SwissGrid = ({ children }: { children: React.ReactNode }) => {
   const { t } = useTranslations();
+  const currentUser = getStoredAuthUser();
+  const isAdmin = currentUser?.role === 'admin';
 
   return (
     // 1. Outer Wrapper: Fixed height with grid background
@@ -56,6 +59,14 @@ export const SwissGrid = ({ children }: { children: React.ReactNode }) => {
             <span className="uppercase font-bold">Resume Matcher</span>
           </div>
           <div className="flex items-center gap-4">
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className="bg-blue-700 text-white border border-black px-6 py-2 uppercase font-bold tracking-wide shadow-sw-sm hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-none transition-all min-w-[140px] text-center"
+              >
+                Admin
+              </Link>
+            )}
             <Link
               href="/settings"
               className="bg-warning text-black border border-black px-6 py-2 uppercase font-bold tracking-wide shadow-sw-sm hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-none transition-all min-w-[140px] text-center"

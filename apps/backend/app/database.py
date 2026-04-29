@@ -61,6 +61,7 @@ class Database:
     RESUMES = "resumes"
     JOBS = "jobs"
     IMPROVEMENTS = "improvements"
+    USERS = "users"
 
     def __init__(self) -> None:
         self._client: firestore.firestore.Client | None = None
@@ -92,6 +93,194 @@ class Database:
 
     # ── Resume operations ────────────────────────────────────────────────
 
+    # ── User operations ─────────────────────────────────────────────────
+
+    def create_user(
+        self,
+        email: str,
+        password_hash: str,
+        role: str = "user",
+    ) -> dict[str, Any]:
+        """Create a new user entry."""
+        user_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        doc: dict[str, Any] = {
+            "user_id": user_id,
+            "email": email.lower().strip(),
+            "password_hash": password_hash,
+            "role": role,
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._col(self.USERS).document(user_id).set(doc)
+        return doc
+
+    def get_user(self, user_id: str) -> dict[str, Any] | None:
+        """Get user by ID."""
+        doc = self._col(self.USERS).document(user_id).get()
+        return self._doc_to_dict(doc)
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        """Get user by email address (case-insensitive)."""
+        normalized_email = email.lower().strip()
+        docs = (
+            self._col(self.USERS)
+            .where(filter=FieldFilter("email", "==", normalized_email))
+            .limit(1)
+            .stream()
+        )
+        for doc in docs:
+            return doc.to_dict()
+        return None
+
+    def update_user_role(self, user_id: str, role: str) -> dict[str, Any] | None:
+        """Update user role and return updated record."""
+        doc_ref = self._col(self.USERS).document(user_id)
+        if not doc_ref.get().exists:
+            return None
+        doc_ref.update({"role": role, "updated_at": datetime.now(timezone.utc).isoformat()})
+        return self.get_user(user_id)
+
+    def list_users(self) -> list[dict[str, Any]]:
+        """List all users (admin only). Returns safe fields only."""
+        docs = self._col(self.USERS).stream()
+        users = []
+        for doc in docs:
+            data = doc.to_dict()
+            users.append({
+                "user_id": data.get("user_id", doc.id),
+                "email": data.get("email", ""),
+                "role": data.get("role", "user"),
+                "created_at": data.get("created_at", ""),
+                "updated_at": data.get("updated_at", ""),
+            })
+        return users
+
+    def get_user_llm_config(self, user_id: str) -> dict[str, Any]:
+        """Get the per-user LLM config overlay."""
+        user = self.get_user(user_id)
+        if not user:
+            return {}
+
+        config = user.get("llm_config", {})
+        if not isinstance(config, dict):
+            return {}
+        return dict(config)
+
+    def save_user_llm_config(self, user_id: str, config: dict[str, Any]) -> dict[str, Any] | None:
+        """Persist the per-user LLM config overlay."""
+        doc_ref = self._col(self.USERS).document(user_id)
+        if not doc_ref.get().exists:
+            return None
+
+        doc_ref.update(
+            {
+                "llm_config": dict(config),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return self.get_user(user_id)
+
+    def get_user_feature_config(self, user_id: str) -> dict[str, Any]:
+        """Get the per-user feature config."""
+        user = self.get_user(user_id)
+        if not user:
+            return {}
+
+        config = user.get("feature_config", {})
+        if not isinstance(config, dict):
+            return {}
+        return dict(config)
+
+    def save_user_feature_config(self, user_id: str, config: dict[str, Any]) -> dict[str, Any] | None:
+        """Persist the per-user feature config."""
+        doc_ref = self._col(self.USERS).document(user_id)
+        if not doc_ref.get().exists:
+            return None
+
+        doc_ref.update(
+            {
+                "feature_config": dict(config),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return self.get_user(user_id)
+
+    def get_user_language_config(self, user_id: str) -> dict[str, Any]:
+        """Get the per-user language config."""
+        user = self.get_user(user_id)
+        if not user:
+            return {}
+
+        config = user.get("language_config", {})
+        if not isinstance(config, dict):
+            return {}
+        return dict(config)
+
+    def save_user_language_config(self, user_id: str, config: dict[str, Any]) -> dict[str, Any] | None:
+        """Persist the per-user language config."""
+        doc_ref = self._col(self.USERS).document(user_id)
+        if not doc_ref.get().exists:
+            return None
+
+        doc_ref.update(
+            {
+                "language_config": dict(config),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return self.get_user(user_id)
+
+    def get_user_prompt_config(self, user_id: str) -> dict[str, Any]:
+        """Get the per-user prompt config."""
+        user = self.get_user(user_id)
+        if not user:
+            return {}
+
+        config = user.get("prompt_config", {})
+        if not isinstance(config, dict):
+            return {}
+        return dict(config)
+
+    def save_user_prompt_config(self, user_id: str, config: dict[str, Any]) -> dict[str, Any] | None:
+        """Persist the per-user prompt config."""
+        doc_ref = self._col(self.USERS).document(user_id)
+        if not doc_ref.get().exists:
+            return None
+
+        doc_ref.update(
+            {
+                "prompt_config": dict(config),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return self.get_user(user_id)
+
+    def get_user_feature_prompts(self, user_id: str) -> dict[str, Any]:
+        """Get the per-user feature prompts config."""
+        user = self.get_user(user_id)
+        if not user:
+            return {}
+
+        config = user.get("feature_prompts_config", {})
+        if not isinstance(config, dict):
+            return {}
+        return dict(config)
+
+    def save_user_feature_prompts(self, user_id: str, config: dict[str, Any]) -> dict[str, Any] | None:
+        """Persist the per-user feature prompts config."""
+        doc_ref = self._col(self.USERS).document(user_id)
+        if not doc_ref.get().exists:
+            return None
+
+        doc_ref.update(
+            {
+                "feature_prompts_config": dict(config),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return self.get_user(user_id)
+
     def create_resume(
         self,
         content: str,
@@ -105,6 +294,7 @@ class Database:
         outreach_message: str | None = None,
         title: str | None = None,
         original_markdown: str | None = None,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a new resume entry.
 
@@ -128,6 +318,8 @@ class Database:
             "created_at": now,
             "updated_at": now,
         }
+        if owner_user_id is not None:
+            doc["owner_user_id"] = owner_user_id
         if original_markdown is not None:
             doc["original_markdown"] = original_markdown
 
@@ -144,6 +336,7 @@ class Database:
         cover_letter: str | None = None,
         outreach_message: str | None = None,
         original_markdown: str | None = None,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a new resume with atomic master assignment.
 
@@ -152,7 +345,7 @@ class Database:
         the FastAPI event loop unlike threading.Lock.
         """
         async with self._master_resume_lock:
-            current_master = self.get_master_resume()
+            current_master = self.get_master_resume(user_id=owner_user_id)
             is_master = current_master is None
 
             # Recovery behavior: if the current master is stuck in failed or
@@ -173,6 +366,7 @@ class Database:
                 cover_letter=cover_letter,
                 outreach_message=outreach_message,
                 original_markdown=original_markdown,
+                owner_user_id=owner_user_id,
             )
 
     def get_resume(self, resume_id: str) -> dict[str, Any] | None:
@@ -180,14 +374,12 @@ class Database:
         doc = self._col(self.RESUMES).document(resume_id).get()
         return self._doc_to_dict(doc)
 
-    def get_master_resume(self) -> dict[str, Any] | None:
-        """Get the master resume if exists."""
-        docs = (
-            self._col(self.RESUMES)
-            .where(filter=FieldFilter("is_master", "==", True))
-            .limit(1)
-            .stream()
-        )
+    def get_master_resume(self, user_id: str | None = None) -> dict[str, Any] | None:
+        """Get the master resume for the given user (or global if user_id is None)."""
+        query = self._col(self.RESUMES).where(filter=FieldFilter("is_master", "==", True))
+        if user_id is not None:
+            query = query.where(filter=FieldFilter("owner_user_id", "==", user_id))
+        docs = query.limit(1).stream()
         for doc in docs:
             return doc.to_dict()
         return None
@@ -226,6 +418,15 @@ class Database:
         docs = self._col(self.RESUMES).stream()
         return [doc.to_dict() for doc in docs]
 
+    def list_resumes_for_user(self, user_id: str) -> list[dict[str, Any]]:
+        """List resumes belonging to a specific user."""
+        docs = (
+            self._col(self.RESUMES)
+            .where(filter=FieldFilter("owner_user_id", "==", user_id))
+            .stream()
+        )
+        return [doc.to_dict() for doc in docs]
+
     def set_master_resume(self, resume_id: str) -> bool:
         """Set a resume as the master, unsetting any existing master.
 
@@ -252,17 +453,20 @@ class Database:
 
     # ── Job operations ───────────────────────────────────────────────────
 
-    def create_job(self, content: str, resume_id: str | None = None) -> dict[str, Any]:
+    def create_job(self, content: str, resume_id: str | None = None, title: str | None = None) -> dict[str, Any]:
         """Create a new job description entry."""
         job_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
-        doc = {
+        doc: dict[str, Any] = {
             "job_id": job_id,
             "content": content,
             "resume_id": resume_id,
             "created_at": now,
         }
+        if title:
+            doc["title"] = title
+            
         self._col(self.JOBS).document(job_id).set(doc)
         return doc
 
@@ -323,8 +527,39 @@ class Database:
 
     # ── Stats ────────────────────────────────────────────────────────────
 
-    def get_stats(self) -> dict[str, Any]:
-        """Get database statistics."""
+    def get_stats(self, user_id: str | None = None) -> dict[str, Any]:
+        """Get database statistics.
+
+        If user_id is provided, returns stats for that user only.
+        Otherwise returns global stats (for backwards compatibility).
+        """
+        if user_id:
+            # User-specific stats: count resumes, jobs, improvements owned by user
+            resumes = list(self._col(self.RESUMES)
+                .where(filter=FieldFilter("owner_user_id", "==", user_id))
+                .stream())
+            user_jobs = []
+            for resume in resumes:
+                resume_id = resume.get("resume_id")
+                jobs = list(self._col(self.JOBS)
+                    .where(filter=FieldFilter("resume_id", "==", resume_id))
+                    .stream())
+                user_jobs.extend(jobs)
+            user_improvements = []
+            for resume in resumes:
+                resume_id = resume.get("resume_id")
+                improvements = list(self._col(self.IMPROVEMENTS)
+                    .where(filter=FieldFilter("tailored_resume_id", "==", resume_id))
+                    .stream())
+                user_improvements.extend(improvements)
+            return {
+                "total_resumes": len(resumes),
+                "total_jobs": len(user_jobs),
+                "total_improvements": len(user_improvements),
+                "has_master_resume": self.get_master_resume(user_id=user_id) is not None,
+            }
+        
+        # Global stats (backwards compatibility)
         return {
             "total_resumes": len(list(self._col(self.RESUMES).stream())),
             "total_jobs": len(list(self._col(self.JOBS).stream())),
@@ -339,6 +574,10 @@ class Database:
             docs = self._col(collection_name).stream()
             for doc in docs:
                 doc.reference.delete()
+
+        docs = self._col(self.USERS).stream()
+        for doc in docs:
+            doc.reference.delete()
 
         # Clear uploads directory
         uploads_dir = settings.data_dir / "uploads"

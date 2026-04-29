@@ -1,31 +1,35 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { useResumePreview } from '@/components/common/resume_previewer_context';
 import type { ImprovedResult } from '@/components/common/resume_previewer_context';
+import { useResumePreview } from '@/components/common/resume_previewer_context';
 import type { ResumeData } from '@/components/dashboard/resume-component';
-import {
-  uploadJobDescriptions,
-  previewImproveResume,
-  confirmImproveResume,
-} from '@/lib/api/resume';
-import { fetchPromptConfig, type PromptOption } from '@/lib/api/config';
-import { Dropdown } from '@/components/ui/dropdown';
-import { useStatusCache } from '@/lib/context/status-cache';
-import { Loader2, ArrowLeft, AlertTriangle, Settings } from 'lucide-react';
-import { useTranslations } from '@/lib/i18n';
 import { DiffPreviewModal } from '@/components/tailor/diff-preview-modal';
+import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Dropdown } from '@/components/ui/dropdown';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { fetchPromptConfig, type PromptOption } from '@/lib/api/config';
+import {
+    confirmImproveResume,
+    previewImproveResume,
+    uploadJobDescriptions,
+} from '@/lib/api/resume';
+import { getStoredAuthUser, getStoredMasterResumeId } from '@/lib/auth/session';
+import { useStatusCache } from '@/lib/context/status-cache';
+import { useTranslations } from '@/lib/i18n';
+import { AlertTriangle, ArrowLeft, Loader2, Settings } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 export default function TailorPage() {
   const { t } = useTranslations();
+  const [jobTitle, setJobTitle] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiKeyToast, setApiKeyToast] = useState<string | null>(null);
   const [masterResumeId, setMasterResumeId] = useState<string | null>(null);
   const [promptOptions, setPromptOptions] = useState<PromptOption[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState('keywords');
@@ -46,6 +50,7 @@ export default function TailorPage() {
   // Elapsed timer for long operations
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const apiKeyRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -62,6 +67,7 @@ export default function TailorPage() {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (apiKeyRedirectTimerRef.current) clearTimeout(apiKeyRedirectTimerRef.current);
     };
   }, []);
 
@@ -79,7 +85,7 @@ export default function TailorPage() {
   const isLlmConfigured = !statusLoading && systemStatus?.llm_configured;
 
   useEffect(() => {
-    const storedId = localStorage.getItem('master_resume_id');
+    const storedId = getStoredMasterResumeId(getStoredAuthUser()?.user_id ?? null);
     if (!storedId) {
       router.push('/dashboard');
     } else {
@@ -173,7 +179,11 @@ export default function TailorPage() {
     try {
       // 1. Upload Job Description
       // The API expects an array of strings
-      const jobId = await uploadJobDescriptions([description], resumeId);
+      const jobId = await uploadJobDescriptions(
+        [description],
+        resumeId,
+        jobTitle.trim() ? [jobTitle.trim()] : undefined
+      );
       incrementJobs(); // Update cached counter
 
       // 2. Preview Resume
@@ -206,6 +216,7 @@ export default function TailorPage() {
         errorMessage.includes('401')
       ) {
         setError(t('tailor.errors.apiKeyError'));
+        showApiKeyToastAndRedirect();
       } else if (
         errorMessage.toLowerCase().includes('rate limit') ||
         errorMessage.includes('429')
@@ -236,6 +247,17 @@ export default function TailorPage() {
       stopTimer();
     }
   };
+
+  const showApiKeyToastAndRedirect = useCallback(() => {
+    setApiKeyToast(t('tailor.errors.apiKeyError'));
+    if (apiKeyRedirectTimerRef.current) {
+      clearTimeout(apiKeyRedirectTimerRef.current);
+    }
+    apiKeyRedirectTimerRef.current = setTimeout(() => {
+      setApiKeyToast(null);
+      router.push('/settings');
+    }, 2000);
+  }, [router, t]);
 
   // User confirms changes
   const handleConfirmChanges = async () => {
@@ -323,6 +345,11 @@ export default function TailorPage() {
 
   return (
     <div className="min-h-screen w-full bg-[#F6F5EE] flex flex-col items-center justify-center p-4 md:p-8 font-sans">
+      {apiKeyToast && (
+        <div className="fixed top-4 right-4 z-50 max-w-sm border-2 border-black bg-amber-50 px-4 py-3 font-mono text-xs text-amber-900 shadow-sw-default">
+          {apiKeyToast}
+        </div>
+      )}
       <div className="w-full max-w-4xl bg-white border border-black shadow-sw-lg p-8 md:p-12 lg:p-14 relative">
         {/* Back Button */}
         <Button variant="link" className="absolute top-4 left-4" onClick={() => router.back()}>
@@ -403,17 +430,28 @@ export default function TailorPage() {
             disabled={isLoading || promptLoading}
           />
 
-          <div className="relative">
-            <Textarea
-              placeholder={t('tailor.jobDescriptionPlaceholder')}
-              className="min-h-[300px] font-mono text-sm bg-background border-2 border-black focus:ring-0 focus:border-blue-700 resize-none p-4 rounded-none"
-              value={jobDescription}
-              onChange={(e) => setJobDescription(e.target.value)}
-              onKeyDown={handleTextareaKeyDown}
+          <div className="relative space-y-4">
+            <Input
+              placeholder={t('tailor.jobTitlePlaceholder', {
+                defaultValue: 'Optional: Custom Job Title',
+              })}
+              className="font-mono text-sm bg-background border-2 border-black focus:ring-0 focus:border-blue-700 rounded-none w-full"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
               disabled={isLoading}
             />
-            <div className="absolute bottom-2 right-2 text-xs font-mono text-steel-grey pointer-events-none">
-              {t('tailor.charactersCount', { count: jobDescription.length })}
+            <div className="relative">
+              <Textarea
+                placeholder={t('tailor.jobDescriptionPlaceholder')}
+                className="min-h-[300px] font-mono text-sm bg-background border-2 border-black focus:ring-0 focus:border-blue-700 resize-none p-4 rounded-none w-full"
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                onKeyDown={handleTextareaKeyDown}
+                disabled={isLoading}
+              />
+              <div className="absolute bottom-2 right-2 text-xs font-mono text-steel-grey pointer-events-none">
+                {t('tailor.charactersCount', { count: jobDescription.length })}
+              </div>
             </div>
           </div>
 

@@ -126,6 +126,11 @@ LLM_PROVIDER=openai
 LLM_MODEL=gpt-5-nano-2025-08-07
 LLM_API_KEY=sk-your-api-key-here
 
+# Authentication (backend-managed roles)
+JWT_SECRET_KEY=replace-with-a-long-random-secret
+AUTH_TOKEN_EXPIRE_MINUTES=10080
+ADMIN_EMAILS=admin@example.com
+
 # Keep these as default for local development
 HOST=0.0.0.0
 PORT=8000
@@ -292,6 +297,9 @@ PORT=4000 docker compose up -d
 | `LLM_MODEL` | — | Model to use (configured via Settings UI) |
 | `LLM_API_KEY` | — | API key (recommended: configure via Settings UI) |
 | `LLM_API_BASE` | — | Custom API endpoint (for Ollama or proxies) |
+| `JWT_SECRET_KEY` | `change-me-in-production` | Secret used to sign access tokens |
+| `AUTH_TOKEN_EXPIRE_MINUTES` | `10080` | Access-token expiry in minutes |
+| `ADMIN_EMAILS` | — | Comma-separated emails auto-assigned `admin` role at registration |
 
 > **Note:** Changes to `LOG_LEVEL` and `LOG_LLM` require a container restart to take effect.
 

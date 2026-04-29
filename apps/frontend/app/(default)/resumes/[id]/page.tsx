@@ -1,25 +1,30 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import Resume, { ResumeData } from '@/components/dashboard/resume-component';
+import { EnrichmentModal } from '@/components/enrichment/enrichment-modal';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import Resume, { ResumeData } from '@/components/dashboard/resume-component';
 import {
-  fetchResume,
-  downloadResumePdf,
-  getResumePdfUrl,
-  deleteResume,
-  retryProcessing,
-  renameResume,
+    deleteResume,
+    downloadResumePdf,
+    fetchResume,
+    getResumePdfUrl,
+    renameResume,
+    retryProcessing,
 } from '@/lib/api/resume';
-import { useStatusCache } from '@/lib/context/status-cache';
-import { ArrowLeft, Edit, Download, Loader2, AlertCircle, Sparkles, Pencil } from 'lucide-react';
-import { EnrichmentModal } from '@/components/enrichment/enrichment-modal';
-import { useTranslations } from '@/lib/i18n';
-import { withLocalizedDefaultSections } from '@/lib/utils/section-helpers';
+import {
+    clearStoredMasterResumeId,
+    getStoredAuthUser,
+    getStoredMasterResumeId,
+} from '@/lib/auth/session';
 import { useLanguage } from '@/lib/context/language-context';
+import { useStatusCache } from '@/lib/context/status-cache';
+import { useTranslations } from '@/lib/i18n';
 import { downloadBlobAsFile, openUrlInNewTab, sanitizeFilename } from '@/lib/utils/download';
+import { withLocalizedDefaultSections } from '@/lib/utils/section-helpers';
+import { AlertCircle, ArrowLeft, Download, Edit, Loader2, Pencil, Sparkles } from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import React, { useEffect, useMemo, useState } from 'react';
 
 type ProcessingStatus = 'pending' | 'processing' | 'ready' | 'failed';
 
@@ -46,6 +51,7 @@ export default function ResumeViewerPage() {
   const [editingTitleValue, setEditingTitleValue] = useState('');
 
   const resumeId = params?.id as string;
+  const currentUserId = getStoredAuthUser()?.user_id ?? null;
 
   const localizedResumeData = useMemo(() => {
     if (!resumeData) return null;
@@ -96,8 +102,8 @@ export default function ResumeViewerPage() {
     };
 
     loadResume();
-    setIsMasterResume(localStorage.getItem('master_resume_id') === resumeId);
-  }, [resumeId, t]);
+    setIsMasterResume(getStoredMasterResumeId(currentUserId) === resumeId);
+  }, [resumeId, t, currentUserId]);
 
   const handleRetryProcessing = async () => {
     if (!resumeId) return;
@@ -192,7 +198,7 @@ export default function ResumeViewerPage() {
       // Update cached counters
       decrementResumes();
       if (isMasterResume) {
-        localStorage.removeItem('master_resume_id');
+        clearStoredMasterResumeId(currentUserId);
         setHasMasterResume(false);
       }
       setShowDeleteDialog(false);

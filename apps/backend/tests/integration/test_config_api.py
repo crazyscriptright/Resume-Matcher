@@ -6,6 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.services.auth import get_current_user
 
 
 @pytest.fixture
@@ -14,17 +15,32 @@ def client():
     return AsyncClient(transport=transport, base_url="http://test")
 
 
+@pytest.fixture(autouse=True)
+def mock_current_user():
+    async def override_current_user():
+        return {
+            "user_id": "user-1",
+            "email": "user@example.com",
+            "role": "premium",
+        }
+
+    app.dependency_overrides[get_current_user] = override_current_user
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+
+
 class TestLlmConfig:
     """GET/PUT /api/v1/config/llm-api-key"""
 
+    @patch("app.llm.get_shared_llm_config")
     @patch("app.routers.config._load_config")
-    async def test_get_llm_config(self, mock_load, client):
+    async def test_get_llm_config(self, mock_load, mock_shared, client):
         mock_load.return_value = {
             "provider": "openai",
             "model": "gpt-4",
-            "api_key": "sk-1234567890abcdef",
             "api_base": None,
         }
+        mock_shared.return_value = {"api_key": "sk-1234567890abcdef"}
         async with client:
             resp = await client.get("/api/v1/config/llm-api-key")
         assert resp.status_code == 200
@@ -33,7 +49,7 @@ class TestLlmConfig:
         # API key should be masked
         assert "****" in data["api_key"] or "*" in data["api_key"]
 
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config.save_shared_llm_config")
     @patch("app.routers.config._load_config")
     async def test_put_llm_config(self, mock_load, mock_save, client):
         mock_load.return_value = {}

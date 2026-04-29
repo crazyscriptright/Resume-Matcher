@@ -105,6 +105,38 @@ def save_config_file(config: dict[str, Any]) -> None:
         logger.error("Failed to save config to Firestore: %s", e)
 
 
+def get_shared_llm_config() -> dict[str, Any]:
+    """Get the shared LLM configuration for premium/admin roles."""
+    config = load_config_file()
+    shared = config.get("shared_llm_config", {})
+    if not isinstance(shared, dict):
+        return {}
+    return dict(shared)
+
+
+def save_shared_llm_config(shared_config: dict[str, Any]) -> None:
+    """Persist the shared LLM configuration for premium/admin roles."""
+    config = load_config_file()
+    config["shared_llm_config"] = dict(shared_config)
+    save_config_file(config)
+
+
+def get_admin_llm_config() -> dict[str, Any]:
+    """Get the optional admin-specific LLM override config."""
+    config = load_config_file()
+    admin_config = config.get("admin_llm_config", {})
+    if not isinstance(admin_config, dict):
+        return {}
+    return dict(admin_config)
+
+
+def save_admin_llm_config(admin_config: dict[str, Any]) -> None:
+    """Persist the optional admin-specific LLM override config."""
+    config = load_config_file()
+    config["admin_llm_config"] = dict(admin_config)
+    save_config_file(config)
+
+
 def get_api_keys_from_config() -> dict[str, str]:
     """Get API keys from config.
 
@@ -224,6 +256,12 @@ class Settings(BaseSettings):
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     frontend_base_url: str = "http://localhost:3000"
 
+    # Authentication Configuration
+    jwt_secret_key: str = "change-me-in-production"
+    auth_token_expire_minutes: int = 60 * 24 * 7
+    admin_emails: list[str] = []
+    premium_emails: list[str] = []
+
     # Reasoning effort for models that support it (OpenAI gpt-5 family,
     # Anthropic Claude 3.7+, DeepSeek R1, etc.). None means "do not send the
     # param" — the default for maximum compatibility. LiteLLM drops this
@@ -246,6 +284,44 @@ class Settings(BaseSettings):
         if value not in ALLOWED_LOG_LEVELS:
             raise ValueError(f"Invalid LOG_LEVEL: {value}. Allowed: {ALLOWED_LOG_LEVELS}")
         return value
+
+    @field_validator("admin_emails", mode="before")
+    @classmethod
+    def normalize_admin_emails(cls, v: Any) -> list[str]:
+        """Normalize admin emails from comma-separated or list format."""
+        if not v:
+            return []
+
+        if isinstance(v, str):
+            return [
+                email.strip().lower()
+                for email in v.split(",")
+                if email.strip()
+            ]
+
+        if isinstance(v, list):
+            return [str(email).strip().lower() for email in v if str(email).strip()]
+
+        raise ValueError("ADMIN_EMAILS must be a comma-separated string or list")
+
+    @field_validator("premium_emails", mode="before")
+    @classmethod
+    def normalize_premium_emails(cls, v: Any) -> list[str]:
+        """Normalize premium emails from comma-separated or list format."""
+        if not v:
+            return []
+
+        if isinstance(v, str):
+            return [
+                email.strip().lower()
+                for email in v.split(",")
+                if email.strip()
+            ]
+
+        if isinstance(v, list):
+            return [str(email).strip().lower() for email in v if str(email).strip()]
+
+        raise ValueError("PREMIUM_EMAILS must be a comma-separated string or list")
 
     # CORS Configuration
     cors_origins: list[str] = [

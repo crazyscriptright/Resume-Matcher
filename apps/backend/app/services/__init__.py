@@ -1,14 +1,19 @@
-"""Business logic services."""
+"""Business logic services package.
 
-from app.services.parser import parse_document, parse_resume_to_json
-from app.services.improver import improve_resume, generate_improvements
-from app.services.refiner import refine_resume
+Submodules are intentionally *not* imported at package import time to avoid
+circular import issues (some submodules depend on `app.llm`). Import the
+submodules directly where needed, for example::
+
+    from app.services import parser
+    from app.services import auth
+
+This keeps imports lightweight and prevents import-time cycles in tests.
+"""
 
 __all__ = [
-    "parse_document",
-    "parse_resume_to_json",
-    "improve_resume",
-    "generate_improvements",
-    "refine_resume",
+    "auth",
+    "parser",
+    "improver",
+    "refiner",
 ]
 

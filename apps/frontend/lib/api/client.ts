@@ -4,6 +4,8 @@
  * Single source of truth for API configuration and base fetch utilities.
  */
 
+import { clearAuthSession, getStoredAccessToken } from '@/lib/auth/session';
+
 const DEFAULT_PUBLIC_API_URL = '/';
 const INTERNAL_API_ORIGIN = 'http://127.0.0.1:8000';
 
@@ -60,9 +62,47 @@ export async function apiFetch(
   const timeout = timeoutMs ?? 240_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  const headers = new Headers(options?.headers);
+  const accessToken = getStoredAccessToken();
+
+  if (accessToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${accessToken}`);
+  }
 
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const resp = await fetch(url, { ...options, headers, signal: controller.signal });
+
+    // If authentication expired, clear stored session and redirect to login
+    // (browser only). Do NOT redirect on 403 so callers can handle forbidden
+    // cases (e.g. missing per-user LLM API key) and show a friendly UI.
+    if (resp.status === 401) {
+      try {
+        clearAuthSession();
+      } catch {
+        /* ignore */
+      }
+      if (typeof window !== 'undefined') {
+        // Dispatch a global event instead of performing a hard navigation.
+        // Listeners (e.g. a header or top-level client component) can perform
+        // a client-side navigation via Next.js router to avoid full-page reloads.
+        const currentPath = window.location.pathname;
+        const publicPrefixes = ['/login', '/register', '/print', '/public'];
+        const isAlreadyPublic = publicPrefixes.some((p) => currentPath.startsWith(p));
+        if (!isAlreadyPublic) {
+          const redirect = encodeURIComponent(currentPath + window.location.search);
+          try {
+            window.dispatchEvent(
+              new CustomEvent('unauthorized', { detail: { redirect: `/login?redirect=${redirect}` } })
+            );
+          } catch {
+            // Fallback to hard navigation on older browsers or if dispatch fails
+            window.location.href = `/login?redirect=${redirect}`;
+          }
+        }
+      }
+    }
+
+    return resp;
   } finally {
     clearTimeout(timer);
   }

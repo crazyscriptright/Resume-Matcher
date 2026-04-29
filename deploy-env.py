@@ -59,6 +59,6 @@ def deploy_to_heroku(env_vars):
         sys.exit(1)
 
 if __name__ == "__main__":
-    env_path = Path("apps/backend/.env")
+    env_path = Path("apps/backend/.env.prod")
     env_vars = load_env_file(env_path)
     deploy_to_heroku(env_vars)

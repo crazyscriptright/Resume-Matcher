@@ -11,7 +11,15 @@ from litellm import Router
 from litellm.router import RetryPolicy
 from pydantic import BaseModel
 
-from app.config import load_config_file, save_config_file, settings
+from app.database import db
+from app.config import (
+    get_admin_llm_config,
+    get_shared_llm_config,
+    load_config_file,
+    save_config_file,
+    settings,
+)
+from app.services.auth import current_user_id, is_shared_llm_role
 
 LITELLM_LOGGER_NAMES = ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy")
 
@@ -313,7 +321,12 @@ _PROVIDERS_WITHOUT_ENV_KEY_FALLBACK: frozenset[str] = frozenset(
 )
 
 
-def resolve_api_key(stored: dict, provider: str) -> str:
+def resolve_api_key(
+    stored: dict,
+    provider: str,
+    *,
+    allow_env_fallback: bool = True,
+) -> str:
     """Resolve the effective API key from stored config.
 
     Priority: top-level ``api_key`` > ``api_keys[provider]`` > env/settings
@@ -321,6 +334,9 @@ def resolve_api_key(stored: dict, provider: str) -> str:
     (``openai_compatible`` / ``ollama``), where the env-level default is
     skipped so a paid OpenAI key in ``LLM_API_KEY`` cannot leak to a local
     self-hosted server when the user leaves the provider key blank.
+
+    Handles comma-separated API keys by extracting the first valid one.
+    This is useful for fallback/rotation setups where multiple keys are provided.
 
     This is the single source of truth for key resolution. Every code path
     that needs an API key (runtime, config display, health check, test
@@ -335,11 +351,51 @@ def resolve_api_key(stored: dict, provider: str) -> str:
         config_provider = _PROVIDER_KEY_MAP.get(provider, provider)
         env_default = (
             ""
-            if provider in _PROVIDERS_WITHOUT_ENV_KEY_FALLBACK
+            if (not allow_env_fallback) or (provider in _PROVIDERS_WITHOUT_ENV_KEY_FALLBACK)
             else settings.llm_api_key
         )
         api_key = api_keys.get(config_provider, env_default)
+    
+    # Handle comma-separated API keys by extracting the first valid one
+    if api_key and "," in api_key:
+        keys = [k.strip() for k in api_key.split(",")]
+        api_key = next((k for k in keys if k), "")
+    
     return api_key
+
+
+def _merge_llm_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Overlay user-specific config on top of the global config."""
+    merged = dict(base)
+    for key in ("provider", "model", "api_base", "reasoning_effort"):
+        value = override.get(key)
+        if value is not None:
+            merged[key] = value
+
+    api_key = override.get("api_key")
+    if isinstance(api_key, str) and api_key.strip():
+        merged["api_key"] = api_key
+
+    return merged
+
+
+def resolve_role_llm_config(user: dict[str, Any] | None) -> dict[str, Any]:
+    """Resolve the effective LLM config overlay for the current user."""
+    if not user:
+        return {}
+
+    role = str(user.get("role", "user"))
+    if is_shared_llm_role(role):
+        shared_config = get_shared_llm_config()
+        if role == "admin":
+            admin_config = get_admin_llm_config()
+            return _merge_llm_config(shared_config, admin_config)
+        return shared_config
+
+    user_id = user.get("user_id")
+    if not user_id:
+        return {}
+    return db.get_user_llm_config(str(user_id))
 
 
 def get_llm_config() -> LLMConfig:
@@ -356,6 +412,17 @@ def get_llm_config() -> LLMConfig:
     have it restored.
     """
     stored = load_config_file()
+    user: dict[str, Any] | None = None
+    role = "anonymous"
+    role_config: dict[str, Any] = {}
+    user_id = current_user_id.get()
+    if user_id:
+        user = db.get_user(user_id)
+        role = str((user or {}).get("role", "user"))
+        role_config = resolve_role_llm_config(user)
+        if role_config:
+            stored = _merge_llm_config(stored, role_config)
+
     provider = stored.get("provider", settings.llm_provider)
     model = stored.get("model", settings.llm_model)
 
@@ -378,7 +445,14 @@ def get_llm_config() -> LLMConfig:
             # Non-fatal — retry on next call.
             logging.warning("Failed to persist gpt-5 migration: %s", e)
 
-    api_key = resolve_api_key(stored, provider)
+    # Enforce strict key ownership:
+    # - user role must use their own key only (no shared/global/env fallback)
+    # - premium/admin may use shared role config with env fallback as backup
+    if role == "user":
+        user_key = role_config.get("api_key", "") if isinstance(role_config, dict) else ""
+        api_key = user_key.strip() if isinstance(user_key, str) else ""
+    else:
+        api_key = resolve_api_key(stored, provider, allow_env_fallback=True)
 
     raw_re = stored.get("reasoning_effort", settings.reasoning_effort)
     # Normalize empty string to None — user explicitly cleared.
@@ -461,41 +535,24 @@ def _config_fingerprint(config: LLMConfig) -> str:
 
 
 def _build_router(config: LLMConfig) -> Router:
-    """Build a LiteLLM Router with error-type retry policies.
-    
-    Supports multiple API keys separated by commas for automatic rate-limit fallbacks.
-    """
+    """Build a LiteLLM Router with error-type retry policies."""
     model_name = get_model_name(config)
 
+    litellm_params: dict[str, Any] = {"model": model_name}
     effective_key = _effective_api_key(config.provider, config.api_key)
+    if effective_key:
+        litellm_params["api_key"] = effective_key
     api_base = _normalize_api_base(config.provider, config.api_base)
-    
-    # Split comma-separated keys if present (for automatic fallback)
-    if effective_key and "," in effective_key:
-        keys = [k.strip() for k in effective_key.split(",") if k.strip()]
-    else:
-        keys = [effective_key]
-
-    model_list = []
-    for key in keys:
-        litellm_params: dict[str, Any] = {"model": model_name}
-        if key:
-            litellm_params["api_key"] = key
-        if api_base:
-            litellm_params["api_base"] = api_base
-            
-        model_list.append({
-            "model_name": "primary",
-            "litellm_params": litellm_params,
-        })
-
-    # Disable cooldowns if we only have 1 deployment so we don't completely
-    # blackout the backend on a transient error. If we have multiple keys,
-    # cooldowns allow LiteLLM to temporarily skip the rate-limited key and use the next one.
-    disable_cooldowns = len(model_list) <= 1
+    if api_base:
+        litellm_params["api_base"] = api_base
 
     return Router(
-        model_list=model_list,
+        model_list=[
+            {
+                "model_name": "primary",
+                "litellm_params": litellm_params,
+            }
+        ],
         num_retries=3,
         retry_policy=RetryPolicy(
             AuthenticationErrorRetries=0,
@@ -505,7 +562,10 @@ def _build_router(config: LLMConfig) -> Router:
             ContentPolicyViolationErrorRetries=0,
             InternalServerErrorRetries=2,
         ),
-        disable_cooldowns=disable_cooldowns,
+        # Cooldowns disabled: with a single deployment and no fallback,
+        # cooldowns would blackout the backend on transient failures.
+        # Re-enable when a fallback deployment is added.
+        disable_cooldowns=True,
     )
 
 
@@ -558,18 +618,20 @@ async def check_llm_health(
     prompt = test_prompt or "Hi"
 
     try:
-        # Use the router to test the exact setup (including multi-key fallbacks)
-        router, _ = get_router(config)
+        # Make a minimal test call with timeout
+        # Pass API key directly to avoid race conditions with global os.environ
         kwargs: dict[str, Any] = {
-            "model": "primary",
+            "model": model_name,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 64,
+            "api_key": _effective_api_key(config.provider, config.api_key),
+            "api_base": _normalize_api_base(config.provider, config.api_base),
             "timeout": LLM_TIMEOUT_HEALTH_CHECK,
         }
         if config.reasoning_effort:
             kwargs["reasoning_effort"] = config.reasoning_effort
 
-        response = await router.acompletion(**kwargs)
+        response = await litellm.acompletion(**kwargs)
         content = _extract_choice_text(response.choices[0])
         if not content:
             # LLM-003: Empty response (even after reasoning_content / thinking

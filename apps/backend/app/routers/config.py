@@ -2,10 +2,11 @@
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.config import settings
-from app.llm import check_llm_health, LLMConfig, resolve_api_key
+from app.llm import check_llm_health, LLMConfig, resolve_api_key, resolve_role_llm_config
+from app.services.auth import get_current_admin, get_current_user, is_shared_llm_role
 from app.schemas import (
     LLMConfigRequest,
     LLMConfigResponse,
@@ -32,7 +33,9 @@ from app.prompts import (
 from app.prompts.templates import COVER_LETTER_PROMPT, OUTREACH_MESSAGE_PROMPT
 from app.config import (
     get_api_keys_from_config,
+    get_shared_llm_config,
     save_api_keys_to_config,
+    save_shared_llm_config,
     delete_api_key_from_config,
     clear_all_api_keys,
 )
@@ -87,17 +90,19 @@ async def _log_llm_health_check(config: LLMConfig) -> None:
 
 
 @router.get("/llm-api-key", response_model=LLMConfigResponse)
-async def get_llm_config_endpoint() -> LLMConfigResponse:
+async def get_llm_config_endpoint(user: dict = Depends(get_current_user)) -> LLMConfigResponse:
     """Get current LLM configuration (API key masked)."""
     stored = _load_config()
-
-    provider = stored.get("provider", settings.llm_provider)
-    reasoning_effort = stored.get("reasoning_effort", settings.reasoning_effort)
+    user_config = resolve_role_llm_config(user)
+    provider = user_config.get("provider", stored.get("provider", settings.llm_provider))
+    reasoning_effort = user_config.get(
+        "reasoning_effort", stored.get("reasoning_effort", settings.reasoning_effort)
+    )
     return LLMConfigResponse(
         provider=provider,
-        model=stored.get("model", settings.llm_model),
-        api_key=_mask_api_key(resolve_api_key(stored, provider)),
-        api_base=stored.get("api_base", settings.llm_api_base),
+        model=user_config.get("model", stored.get("model", settings.llm_model)),
+        api_key=_mask_api_key(user_config.get("api_key", "")),
+        api_base=user_config.get("api_base", stored.get("api_base", settings.llm_api_base)),
         reasoning_effort=reasoning_effort or None,
     )
 
@@ -106,6 +111,7 @@ async def get_llm_config_endpoint() -> LLMConfigResponse:
 async def update_llm_config(
     request: LLMConfigRequest,
     background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user),
 ) -> LLMConfigResponse:
     """Update LLM configuration.
 
@@ -117,35 +123,55 @@ async def update_llm_config(
     `/config/llm-test` and the System Status panel.
     """
     stored = _load_config()
+    role = str(user.get("role", "user"))
+    shared_role = is_shared_llm_role(role)
+    user_config = resolve_role_llm_config(user)
 
-    # Update only provided fields
+    # Merge the request into the role-appropriate config overlay.
+    next_user_config = dict(user_config)
     if request.provider is not None:
-        stored["provider"] = request.provider
+        next_user_config["provider"] = request.provider
+    elif "provider" not in next_user_config:
+        next_user_config["provider"] = stored.get("provider", settings.llm_provider)
+
     if request.model is not None:
-        stored["model"] = request.model
+        next_user_config["model"] = request.model
+    elif "model" not in next_user_config:
+        next_user_config["model"] = stored.get("model", settings.llm_model)
+
     if request.api_key is not None:
-        stored["api_key"] = request.api_key
+        next_user_config["api_key"] = request.api_key
+    elif "api_key" not in next_user_config:
+        next_user_config["api_key"] = ""
+
     if request.api_base is not None:
-        stored["api_base"] = request.api_base
+        next_user_config["api_base"] = request.api_base
+    elif "api_base" not in next_user_config:
+        next_user_config["api_base"] = stored.get("api_base", settings.llm_api_base)
+
     if request.reasoning_effort is not None:
-        # Persist empty string on clear so the gpt-5 auto-migration doesn't
-        # re-fire on next get_llm_config() call.
-        stored["reasoning_effort"] = request.reasoning_effort
+        next_user_config["reasoning_effort"] = request.reasoning_effort
+    elif "reasoning_effort" not in next_user_config:
+        next_user_config["reasoning_effort"] = stored.get("reasoning_effort", settings.reasoning_effort)
 
     # Build normalized config for response and background health check
-    resolved_provider = stored.get("provider", settings.llm_provider)
-    raw_re = stored.get("reasoning_effort", settings.reasoning_effort)
+    resolved_provider = next_user_config.get("provider", settings.llm_provider)
+    raw_re = next_user_config.get("reasoning_effort", settings.reasoning_effort)
     resolved_reasoning_effort = raw_re if raw_re else None
     test_config = LLMConfig(
         provider=resolved_provider,
-        model=stored.get("model", settings.llm_model),
-        api_key=resolve_api_key(stored, resolved_provider),
-        api_base=stored.get("api_base", settings.llm_api_base),
+        model=next_user_config.get("model", settings.llm_model),
+        api_key=resolve_api_key(next_user_config, resolved_provider),
+        api_base=next_user_config.get("api_base", settings.llm_api_base),
         reasoning_effort=resolved_reasoning_effort,
     )
 
-    # Save config regardless of health check outcome (see docstring).
-    _save_config(stored)
+    # Save the config overlay by role.
+    if shared_role:
+        shared_config = dict(next_user_config)
+        save_shared_llm_config(shared_config)
+    else:
+        db.save_user_llm_config(str(user["user_id"]), next_user_config)
 
     # Best-effort health check for server-side logs/diagnostics (do not block response).
     background_tasks.add_task(_log_llm_health_check, test_config)
@@ -153,48 +179,54 @@ async def update_llm_config(
     return LLMConfigResponse(
         provider=test_config.provider,
         model=test_config.model,
-        api_key=_mask_api_key(test_config.api_key),
+        api_key=_mask_api_key(next_user_config.get("api_key", "")),
         api_base=test_config.api_base,
         reasoning_effort=test_config.reasoning_effort,
     )
 
 
 @router.post("/llm-test")
-async def test_llm_connection(request: LLMConfigRequest | None = None) -> dict:
+async def test_llm_connection(
+    request: LLMConfigRequest | None = None,
+    user: dict = Depends(get_current_user),
+) -> dict:
     """Test LLM connection with provided or stored configuration.
 
     If request body is provided, tests with those values (for pre-save testing).
     Otherwise, tests with the currently saved configuration.
     """
     stored = _load_config()
+    user_config = resolve_role_llm_config(user)
+    merged = dict(stored)
+    merged.update(user_config)
 
     # Build config: use request values if provided, otherwise fall back to stored/default
     test_provider = (
         request.provider
         if request and request.provider
-        else stored.get("provider", settings.llm_provider)
+        else user_config.get("provider", stored.get("provider", settings.llm_provider))
     )
     config = LLMConfig(
         provider=test_provider,
         model=(
             request.model
             if request and request.model
-            else stored.get("model", settings.llm_model)
+            else user_config.get("model", stored.get("model", settings.llm_model))
         ),
         api_key=(
             request.api_key
             if request and request.api_key
-            else resolve_api_key(stored, test_provider)
+            else resolve_api_key(merged, test_provider)
         ),
         api_base=(
             request.api_base
             if request and request.api_base is not None
-            else stored.get("api_base", settings.llm_api_base)
+            else user_config.get("api_base", stored.get("api_base", settings.llm_api_base))
         ),
         reasoning_effort=(
             (request.reasoning_effort or None)
             if request and request.reasoning_effort is not None
-            else (stored.get("reasoning_effort") or settings.reasoning_effort) or None
+            else (user_config.get("reasoning_effort") or stored.get("reasoning_effort") or settings.reasoning_effort) or None
         ),
     )
 
@@ -203,33 +235,36 @@ async def test_llm_connection(request: LLMConfigRequest | None = None) -> dict:
 
 
 @router.get("/features", response_model=FeatureConfigResponse)
-async def get_feature_config() -> FeatureConfigResponse:
-    """Get current feature configuration."""
-    stored = _load_config()
+async def get_feature_config(user: dict = Depends(get_current_user)) -> FeatureConfigResponse:
+    """Get current feature configuration (user-specific)."""
+    user_config = db.get_user_feature_config(str(user["user_id"])) or {}
 
     return FeatureConfigResponse(
-        enable_cover_letter=stored.get("enable_cover_letter", False),
-        enable_outreach_message=stored.get("enable_outreach_message", False),
+        enable_cover_letter=user_config.get("enable_cover_letter", False),
+        enable_outreach_message=user_config.get("enable_outreach_message", False),
     )
 
 
 @router.put("/features", response_model=FeatureConfigResponse)
-async def update_feature_config(request: FeatureConfigRequest) -> FeatureConfigResponse:
-    """Update feature configuration."""
-    stored = _load_config()
+async def update_feature_config(
+    request: FeatureConfigRequest,
+    user: dict = Depends(get_current_user),
+) -> FeatureConfigResponse:
+    """Update feature configuration (user-specific)."""
+    user_config = db.get_user_feature_config(str(user["user_id"])) or {}
 
     # Update only provided fields
     if request.enable_cover_letter is not None:
-        stored["enable_cover_letter"] = request.enable_cover_letter
+        user_config["enable_cover_letter"] = request.enable_cover_letter
     if request.enable_outreach_message is not None:
-        stored["enable_outreach_message"] = request.enable_outreach_message
+        user_config["enable_outreach_message"] = request.enable_outreach_message
 
     # Save config
-    _save_config(stored)
+    db.save_user_feature_config(str(user["user_id"]), user_config)
 
     return FeatureConfigResponse(
-        enable_cover_letter=stored.get("enable_cover_letter", False),
-        enable_outreach_message=stored.get("enable_outreach_message", False),
+        enable_cover_letter=user_config.get("enable_cover_letter", False),
+        enable_outreach_message=user_config.get("enable_outreach_message", False),
     )
 
 
@@ -238,16 +273,13 @@ SUPPORTED_LANGUAGES = ["en", "es", "zh", "ja", "pt"]
 
 
 @router.get("/language", response_model=LanguageConfigResponse)
-async def get_language_config() -> LanguageConfigResponse:
-    """Get current language configuration."""
-    stored = _load_config()
-
-    # Support legacy single 'language' field migration
-    legacy_language = stored.get("language", "en")
+async def get_language_config(user: dict = Depends(get_current_user)) -> LanguageConfigResponse:
+    """Get current language configuration (user-specific)."""
+    user_config = db.get_user_language_config(str(user["user_id"])) or {}
 
     return LanguageConfigResponse(
-        ui_language=stored.get("ui_language", legacy_language),
-        content_language=stored.get("content_language", legacy_language),
+        ui_language=user_config.get("ui_language", "en"),
+        content_language=user_config.get("content_language", "en"),
         supported_languages=SUPPORTED_LANGUAGES,
     )
 
@@ -255,9 +287,10 @@ async def get_language_config() -> LanguageConfigResponse:
 @router.put("/language", response_model=LanguageConfigResponse)
 async def update_language_config(
     request: LanguageConfigRequest,
+    user: dict = Depends(get_current_user),
 ) -> LanguageConfigResponse:
-    """Update language configuration."""
-    stored = _load_config()
+    """Update language configuration (user-specific)."""
+    user_config = db.get_user_language_config(str(user["user_id"])) or {}
 
     # Validate and update UI language
     if request.ui_language is not None:
@@ -266,7 +299,7 @@ async def update_language_config(
                 status_code=400,
                 detail=f"Unsupported UI language: {request.ui_language}. Supported: {SUPPORTED_LANGUAGES}",
             )
-        stored["ui_language"] = request.ui_language
+        user_config["ui_language"] = request.ui_language
 
     # Validate and update content language
     if request.content_language is not None:
@@ -275,28 +308,25 @@ async def update_language_config(
                 status_code=400,
                 detail=f"Unsupported content language: {request.content_language}. Supported: {SUPPORTED_LANGUAGES}",
             )
-        stored["content_language"] = request.content_language
+        user_config["content_language"] = request.content_language
 
     # Save config
-    _save_config(stored)
-
-    # Support legacy single 'language' field migration
-    legacy_language = stored.get("language", "en")
+    db.save_user_language_config(str(user["user_id"]), user_config)
 
     return LanguageConfigResponse(
-        ui_language=stored.get("ui_language", legacy_language),
-        content_language=stored.get("content_language", legacy_language),
+        ui_language=user_config.get("ui_language", "en"),
+        content_language=user_config.get("content_language", "en"),
         supported_languages=SUPPORTED_LANGUAGES,
     )
 
 
 @router.get("/prompts", response_model=PromptConfigResponse)
-async def get_prompt_config() -> PromptConfigResponse:
-    """Get current prompt configuration for resume tailoring."""
-    stored = _load_config()
+async def get_prompt_config(user: dict = Depends(get_current_user)) -> PromptConfigResponse:
+    """Get current prompt configuration for resume tailoring (user-specific)."""
+    user_config = db.get_user_prompt_config(str(user["user_id"])) or {}
     options = _get_prompt_options()
     option_ids = {option.id for option in options}
-    default_prompt_id = stored.get("default_prompt_id", DEFAULT_IMPROVE_PROMPT_ID)
+    default_prompt_id = user_config.get("default_prompt_id", DEFAULT_IMPROVE_PROMPT_ID)
     if default_prompt_id not in option_ids:
         default_prompt_id = DEFAULT_IMPROVE_PROMPT_ID
 
@@ -309,9 +339,10 @@ async def get_prompt_config() -> PromptConfigResponse:
 @router.put("/prompts", response_model=PromptConfigResponse)
 async def update_prompt_config(
     request: PromptConfigRequest,
+    user: dict = Depends(get_current_user),
 ) -> PromptConfigResponse:
-    """Update prompt configuration for resume tailoring."""
-    stored = _load_config()
+    """Update prompt configuration for resume tailoring (user-specific)."""
+    user_config = db.get_user_prompt_config(str(user["user_id"])) or {}
     options = _get_prompt_options()
     option_ids = {option.id for option in options}
 
@@ -324,11 +355,11 @@ async def update_prompt_config(
                     f"{request.default_prompt_id}. Supported: {sorted(option_ids)}"
                 ),
             )
-        stored["default_prompt_id"] = request.default_prompt_id
+        user_config["default_prompt_id"] = request.default_prompt_id
 
-    _save_config(stored)
+    db.save_user_prompt_config(str(user["user_id"]), user_config)
 
-    default_prompt_id = stored.get("default_prompt_id", DEFAULT_IMPROVE_PROMPT_ID)
+    default_prompt_id = user_config.get("default_prompt_id", DEFAULT_IMPROVE_PROMPT_ID)
     if default_prompt_id not in option_ids:
         default_prompt_id = DEFAULT_IMPROVE_PROMPT_ID
 
@@ -339,17 +370,17 @@ async def update_prompt_config(
 
 
 @router.get("/feature-prompts", response_model=FeaturePromptsResponse)
-async def get_feature_prompts() -> FeaturePromptsResponse:
-    """Get custom feature prompts (cover letter, outreach message).
+async def get_feature_prompts(user: dict = Depends(get_current_user)) -> FeaturePromptsResponse:
+    """Get custom feature prompts (cover letter, outreach message - user-specific).
 
     Empty strings mean "use default". The ``*_default`` fields expose the
     built-in prompts so the UI can show them as placeholder text without
     duplicating the content client-side.
     """
-    stored = _load_config()
+    user_config = db.get_user_feature_prompts(str(user["user_id"])) or {}
     return FeaturePromptsResponse(
-        cover_letter_prompt=stored.get("cover_letter_prompt", "") or "",
-        outreach_message_prompt=stored.get("outreach_message_prompt", "") or "",
+        cover_letter_prompt=user_config.get("cover_letter_prompt", "") or "",
+        outreach_message_prompt=user_config.get("outreach_message_prompt", "") or "",
         cover_letter_default=COVER_LETTER_PROMPT,
         outreach_message_default=OUTREACH_MESSAGE_PROMPT,
     )
@@ -358,8 +389,9 @@ async def get_feature_prompts() -> FeaturePromptsResponse:
 @router.put("/feature-prompts", response_model=FeaturePromptsResponse)
 async def update_feature_prompts(
     request: FeaturePromptsRequest,
+    user: dict = Depends(get_current_user),
 ) -> FeaturePromptsResponse:
-    """Update custom feature prompts.
+    """Update custom feature prompts (user-specific).
 
     Non-empty prompts are validated for the three required placeholders
     (``{job_description}``, ``{resume_data}``, ``{output_language}``).
@@ -368,7 +400,7 @@ async def update_feature_prompts(
     override — persisted as ``""`` so runtime resolution falls back to the
     built-in default.
     """
-    stored = _load_config()
+    user_config = db.get_user_feature_prompts(str(user["user_id"])) or {}
 
     if request.cover_letter_prompt is not None:
         prompt = request.cover_letter_prompt.strip()
@@ -383,7 +415,7 @@ async def update_feature_prompts(
                         "missing": missing,
                     },
                 )
-        stored["cover_letter_prompt"] = prompt
+        user_config["cover_letter_prompt"] = prompt
 
     if request.outreach_message_prompt is not None:
         prompt = request.outreach_message_prompt.strip()
@@ -398,13 +430,13 @@ async def update_feature_prompts(
                         "missing": missing,
                     },
                 )
-        stored["outreach_message_prompt"] = prompt
+        user_config["outreach_message_prompt"] = prompt
 
-    _save_config(stored)
+    db.save_user_feature_prompts(str(user["user_id"]), user_config)
 
     return FeaturePromptsResponse(
-        cover_letter_prompt=stored.get("cover_letter_prompt", "") or "",
-        outreach_message_prompt=stored.get("outreach_message_prompt", "") or "",
+        cover_letter_prompt=user_config.get("cover_letter_prompt", "") or "",
+        outreach_message_prompt=user_config.get("outreach_message_prompt", "") or "",
         cover_letter_default=COVER_LETTER_PROMPT,
         outreach_message_default=OUTREACH_MESSAGE_PROMPT,
     )

@@ -1,29 +1,35 @@
 'use client';
 
-import { SwissGrid } from '@/components/home/swiss-grid';
 import { ResumeUploadDialog } from '@/components/dashboard/resume-upload-dialog';
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { SwissGrid } from '@/components/home/swiss-grid';
 import { Button } from '@/components/ui/button';
+import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Card, CardTitle, CardDescription } from '@/components/ui/card';
-import Link from 'next/link';
+import {
+  clearStoredMasterResumeId,
+  getStoredAuthUser,
+  getStoredMasterResumeId,
+  storeMasterResumeId,
+} from '@/lib/auth/session';
 import { useTranslations } from '@/lib/i18n';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Optimized Imports for Performance (No Barrel Imports)
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
-import Plus from 'lucide-react/dist/esm/icons/plus';
-import Settings from 'lucide-react/dist/esm/icons/settings';
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Plus from 'lucide-react/dist/esm/icons/plus';
+import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
+import Settings from 'lucide-react/dist/esm/icons/settings';
 
 import {
+  deleteResume,
+  fetchJobDescription,
   fetchResume,
   fetchResumeList,
-  deleteResume,
   retryProcessing,
-  fetchJobDescription,
   type ResumeListItem,
 } from '@/lib/api/resume';
 import { useStatusCache } from '@/lib/context/status-cache';
@@ -39,6 +45,8 @@ export default function DashboardPage() {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const router = useRouter();
+  const currentUser = getStoredAuthUser();
+  const currentUserId = currentUser?.user_id ?? null;
 
   // Status cache for optimistic counter updates and LLM status check
   const {
@@ -53,9 +61,16 @@ export default function DashboardPage() {
   const loadRequestIdRef = useRef(0);
   // Lightweight in-memory cache for job snippets to avoid N+1 refetches
   const jobSnippetCacheRef = useRef<Record<string, string>>({});
+  // Track whether the initial data load has completed to prevent
+  // redundant focus-triggered reloads from racing with the mount fetch.
+  const initialLoadDoneRef = useRef(false);
 
-  // Check if LLM is configured (API key is set)
-  const isLlmConfigured = !statusLoading && systemStatus?.llm_configured;
+  // Check if LLM is configured (API key is set).
+  // While the status is still loading we optimistically assume "configured"
+  // so the Create Resume button is not blocked by the slow /status health check.
+  // The warning banner still only appears after loading confirms it's NOT configured.
+  const isLlmConfigured = statusLoading || (systemStatus?.llm_configured ?? false);
+  const isLlmDefinitelyNotConfigured = !statusLoading && !systemStatus?.llm_configured;
 
   const isTailorEnabled =
     Boolean(masterResumeId) && processingStatus === 'ready' && isLlmConfigured;
@@ -75,45 +90,56 @@ export default function DashboardPage() {
     });
   };
 
-  const checkResumeStatus = useCallback(async (resumeId: string) => {
-    try {
-      setProcessingStatus('loading');
-      const data = await fetchResume(resumeId);
-      const status = data.raw_resume?.processing_status || 'pending';
-      setProcessingStatus(status as ProcessingStatus);
-    } catch (err: unknown) {
-      console.error('Failed to check resume status:', err);
-      // If resume not found (404), clear the stale localStorage
-      if (err instanceof Error && err.message.includes('404')) {
-        localStorage.removeItem('master_resume_id');
-        setMasterResumeId(null);
-        return;
+  /** Fetch the processing status of a single resume.
+   *  Skips the "loading" flash when the status is already known (ready/failed). */
+  const checkResumeStatus = useCallback(
+    async (resumeId: string, skipLoadingState = false) => {
+      try {
+        if (!skipLoadingState) {
+          setProcessingStatus('loading');
+        }
+        const data = await fetchResume(resumeId);
+        const status = data.raw_resume?.processing_status || 'pending';
+        setProcessingStatus(status as ProcessingStatus);
+      } catch (err: unknown) {
+        console.error('Failed to check resume status:', err);
+        // If resume not found (404), clear the stale localStorage
+        if (err instanceof Error && err.message.includes('404')) {
+          clearStoredMasterResumeId(currentUserId);
+          setMasterResumeId(null);
+          return;
+        }
+        setProcessingStatus('failed');
       }
-      setProcessingStatus('failed');
-    }
-  }, []);
+    },
+    [currentUserId]
+  );
 
+  // Initial mount: load the master resume id from storage and check its status once.
   useEffect(() => {
-    const storedId = localStorage.getItem('master_resume_id');
+    const storedId = getStoredMasterResumeId(currentUserId);
     if (storedId) {
       setMasterResumeId(storedId);
       checkResumeStatus(storedId);
     }
-  }, [checkResumeStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId]);
 
+  /** Load the full resume list and enrich tailored entries with job snippets.
+   *  This does NOT re-check the master resume processing status to avoid
+   *  duplicate fetchResume calls — the status is managed independently. */
   const loadTailoredResumes = useCallback(async () => {
     try {
       const data = await fetchResumeList(true);
       const masterFromList = data.find((r) => r.is_master);
-      const storedId = localStorage.getItem('master_resume_id');
-      const resolvedMasterId = masterFromList?.resume_id || storedId;
+      const storedId = getStoredMasterResumeId(currentUserId);
+      const resolvedMasterId = masterFromList?.resume_id || storedId || data[0]?.resume_id || null;
 
       if (resolvedMasterId) {
-        localStorage.setItem('master_resume_id', resolvedMasterId);
+        storeMasterResumeId(resolvedMasterId, currentUserId);
         setMasterResumeId(resolvedMasterId);
-        checkResumeStatus(resolvedMasterId);
       } else {
-        localStorage.removeItem('master_resume_id');
+        clearStoredMasterResumeId(currentUserId);
         setMasterResumeId(null);
       }
 
@@ -160,23 +186,37 @@ export default function DashboardPage() {
     } catch (err) {
       console.error('Failed to load tailored resumes:', err);
     }
-  }, [checkResumeStatus]);
+  }, [currentUserId]);
 
+  // Load the tailored resume list once on mount.
   useEffect(() => {
-    loadTailoredResumes();
+    loadTailoredResumes().then(() => {
+      initialLoadDoneRef.current = true;
+    });
   }, [loadTailoredResumes]);
 
-  // Refresh list when window gains focus (e.g., returning from viewer after delete)
+  // Refresh list when the tab becomes visible again (e.g. returning from the
+  // viewer after a delete).  Uses the Page Visibility API instead of the
+  // "focus" event which fires far too often (clicking the address bar, alt-
+  // tabbing, etc.) and was the primary cause of the infinite polling loop.
   useEffect(() => {
-    const handleFocus = () => {
-      loadTailoredResumes();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && initialLoadDoneRef.current) {
+        loadTailoredResumes();
+        // Re-check status but skip the "loading" flash since we already
+        // have a known status — the user shouldn't see a flicker.
+        const storedId = getStoredMasterResumeId(currentUserId);
+        if (storedId) {
+          checkResumeStatus(storedId, true);
+        }
+      }
     };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [loadTailoredResumes, checkResumeStatus]);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [loadTailoredResumes, checkResumeStatus, currentUserId]);
 
   const handleUploadComplete = (resumeId: string) => {
-    localStorage.setItem('master_resume_id', resumeId);
+    storeMasterResumeId(resumeId, currentUserId);
     setMasterResumeId(resumeId);
     // Check status after upload completes
     checkResumeStatus(resumeId);
@@ -220,7 +260,7 @@ export default function DashboardPage() {
       await deleteResume(masterResumeId);
       decrementResumes();
       setHasMasterResume(false);
-      localStorage.removeItem('master_resume_id');
+      clearStoredMasterResumeId(currentUserId);
       setMasterResumeId(null);
       setProcessingStatus('loading');
       setIsUploadDialogOpen(true);
@@ -296,7 +336,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Configuration Warning Banner */}
-      {masterResumeId && !isLlmConfigured && !statusLoading && (
+      {masterResumeId && isLlmDefinitelyNotConfigured && (
         <div className="border-2 border-warning bg-amber-50 p-4 shadow-sw-default mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-warning" />
@@ -322,7 +362,7 @@ export default function DashboardPage() {
         {/* 1. Master Resume Logic */}
         {!masterResumeId ? (
           // LLM Not Configured or Upload State
-          !isLlmConfigured && !statusLoading ? (
+          isLlmDefinitelyNotConfigured ? (
             <Link href="/settings" className="block h-full">
               <Card
                 variant="interactive"

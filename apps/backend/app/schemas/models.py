@@ -424,6 +424,7 @@ class JobUploadRequest(BaseModel):
     """Request to upload job descriptions."""
 
     job_descriptions: list[str]
+    job_titles: list[str | None] | None = None
     resume_id: str | None = None
 
 

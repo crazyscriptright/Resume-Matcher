@@ -500,6 +500,7 @@
     "selectResume": "Select Resume",
     "pasteJobDescription": "Paste Job Description",
     "pasteJobDescriptionBelow": "Paste Job Description Below",
+    "jobTitlePlaceholder": "Optional: Custom Job Title (overrides AI generated title)",
     "jobDescriptionPlaceholder": "Paste the job description here...",
     "promptLabel": "Tailoring intensity",
     "promptDescription": "Choose how strongly to align your resume to the job description.",

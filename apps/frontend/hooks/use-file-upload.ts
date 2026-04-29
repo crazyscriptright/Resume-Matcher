@@ -1,13 +1,14 @@
 'use client';
 
+import { getStoredAccessToken } from '@/lib/auth/session';
 import type React from 'react';
 import {
-  useCallback,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type DragEvent,
-  type InputHTMLAttributes,
+    useCallback,
+    useRef,
+    useState,
+    type ChangeEvent,
+    type DragEvent,
+    type InputHTMLAttributes,
 } from 'react';
 
 export type FileMetadata = {
@@ -226,9 +227,16 @@ export const useFileUpload = (
       markUploadStarted();
 
       try {
+        const headers = new Headers();
+        const accessToken = getStoredAccessToken();
+        if (accessToken) {
+          headers.set('Authorization', `Bearer ${accessToken}`);
+        }
+
         const response = await fetch(uploadUrl, {
           method: 'POST',
           body: formData,
+          headers,
         });
 
         let responseData: Record<string, unknown> = {}; // Initialize for broader scope

@@ -1,5 +1,6 @@
 """Pydantic schemas for request/response models."""
 
+from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserInfo
 from app.schemas.models import (
     AdditionalInfo,
     ApiKeyProviderStatus,
@@ -55,6 +56,10 @@ from app.schemas.models import (
 )
 
 __all__ = [
+    "RegisterRequest",
+    "LoginRequest",
+    "UserInfo",
+    "TokenResponse",
     "PersonalInfo",
     "Experience",
     "Education",

@@ -1,3 +1,4 @@
+import Header from '@/components/layout/header';
 import type { Metadata } from 'next';
 import { Geist, Space_Grotesk } from 'next/font/google';
 import './(default)/css/globals.css';
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`${geist.variable} ${spaceGrotesk.variable} antialiased bg-background text-ink-soft min-h-full`}
       >
+        <Header />
         {children}
       </body>
     </html>

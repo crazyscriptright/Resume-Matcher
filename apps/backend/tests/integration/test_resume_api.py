@@ -7,12 +7,26 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-
+from app.services.auth import get_current_user
 
 @pytest.fixture
 def client():
     transport = ASGITransport(app=app)
     return AsyncClient(transport=transport, base_url="http://test")
+
+
+@pytest.fixture(autouse=True)
+def mock_current_user():
+    async def override_current_user():
+        return {
+            "user_id": "user-1",
+            "email": "user@example.com",
+            "role": "user",
+        }
+
+    app.dependency_overrides[get_current_user] = override_current_user
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture
@@ -31,6 +45,7 @@ def mock_resume_record(sample_resume):
         "outreach_message": None,
         "title": None,
         "original_markdown": "# Jane Doe\nSenior Backend Engineer",
+        "owner_user_id": "user-1",
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
     }
@@ -63,10 +78,11 @@ class TestListResumes:
 
     @patch("app.routers.resumes.db")
     async def test_list_excludes_master_by_default(self, mock_db, client):
-        mock_db.list_resumes.return_value = [
+        mock_db.list_resumes_for_user.return_value = [
             {"resume_id": "master", "is_master": True, "created_at": "2026-01-01", "updated_at": "2026-01-01"},
             {"resume_id": "tailored-1", "is_master": False, "created_at": "2026-01-02", "updated_at": "2026-01-02"},
         ]
+        mock_db.get_master_resume.return_value = {"resume_id": "master", "is_master": True}
         async with client:
             resp = await client.get("/api/v1/resumes/list")
         assert resp.status_code == 200
@@ -76,10 +92,11 @@ class TestListResumes:
 
     @patch("app.routers.resumes.db")
     async def test_list_includes_master_when_requested(self, mock_db, client):
-        mock_db.list_resumes.return_value = [
+        mock_db.list_resumes_for_user.return_value = [
             {"resume_id": "master", "is_master": True, "created_at": "2026-01-01", "updated_at": "2026-01-01"},
             {"resume_id": "tailored-1", "is_master": False, "created_at": "2026-01-02", "updated_at": "2026-01-02"},
         ]
+        mock_db.get_master_resume.return_value = {"resume_id": "master", "is_master": True}
         async with client:
             resp = await client.get("/api/v1/resumes/list", params={"include_master": True})
         assert resp.status_code == 200
@@ -92,6 +109,7 @@ class TestDeleteResume:
 
     @patch("app.routers.resumes.db")
     async def test_delete_existing_resume(self, mock_db, client):
+        mock_db.get_resume.return_value = {"resume_id": "res-123", "owner_user_id": "user-1"}
         mock_db.delete_resume.return_value = True
         async with client:
             resp = await client.delete("/api/v1/resumes/res-123")
@@ -99,6 +117,7 @@ class TestDeleteResume:
 
     @patch("app.routers.resumes.db")
     async def test_delete_nonexistent_returns_404(self, mock_db, client):
+        mock_db.get_resume.return_value = None
         mock_db.delete_resume.return_value = False
         async with client:
             resp = await client.delete("/api/v1/resumes/nonexistent")
