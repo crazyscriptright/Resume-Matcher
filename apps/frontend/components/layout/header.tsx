@@ -1,19 +1,16 @@
 'use client';
 
-import { clearAuthSession, getStoredAuthUser } from '@/lib/auth/session';
+import { clearAuthSession } from '@/lib/auth/session';
+import { useAuthUser } from '@/lib/auth/use-auth-user';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 export default function Header() {
   const router = useRouter();
-  const [user, setUser] = useState(() => getStoredAuthUser());
+  const user = useAuthUser();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setUser(getStoredAuthUser());
-  }, []);
 
   // Listen for global unauthorized events dispatched by `apiFetch` and
   // perform a client-side navigation (router.push) to avoid a full reload.
@@ -53,7 +50,6 @@ export default function Header() {
 
   const handleLogout = () => {
     clearAuthSession();
-    setUser(null);
     setOpen(false);
     router.push('/login');
   };

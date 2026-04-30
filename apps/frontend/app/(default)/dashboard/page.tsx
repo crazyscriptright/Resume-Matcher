@@ -7,10 +7,10 @@ import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   clearStoredMasterResumeId,
-  getStoredAuthUser,
   getStoredMasterResumeId,
   storeMasterResumeId,
 } from '@/lib/auth/session';
+import { useAuthUser } from '@/lib/auth/use-auth-user';
 import { useTranslations } from '@/lib/i18n';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -45,7 +45,7 @@ export default function DashboardPage() {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const router = useRouter();
-  const currentUser = getStoredAuthUser();
+  const currentUser = useAuthUser();
   const currentUserId = currentUser?.user_id ?? null;
 
   // Status cache for optimistic counter updates and LLM status check

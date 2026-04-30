@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { fetchSystemStatus, type SystemStatus } from '@/lib/api/config';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 // Cache duration constants
 const LLM_HEALTH_CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
@@ -183,6 +183,16 @@ export function StatusCacheProvider({ children }: { children: React.ReactNode })
     return () => {
       mountedRef.current = false;
     };
+  }, [refreshStatus]);
+
+  // React to settings changes that can affect the shared system status.
+  useEffect(() => {
+    const handleSystemStatusChange = () => {
+      void refreshStatus();
+    };
+
+    window.addEventListener('system-status-change', handleSystemStatusChange);
+    return () => window.removeEventListener('system-status-change', handleSystemStatusChange);
   }, [refreshStatus]);
 
   // Set up periodic LLM health check (every 30 minutes)

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { getStoredAuthUser } from '@/lib/auth/session';
+import { useAuthUser } from '@/lib/auth/use-auth-user';
 import { fetchUsers, updateUserRole, type AdminUser } from '@/lib/api/admin';
 
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
@@ -40,7 +40,7 @@ const ROLE_CONFIG: Record<string, { label: string; icon: typeof User; color: str
 
 export default function AdminPage() {
   const router = useRouter();
-  const currentUser = getStoredAuthUser();
+  const currentUser = useAuthUser();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

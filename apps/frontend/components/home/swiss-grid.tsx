@@ -4,11 +4,11 @@ import React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n';
-import { getStoredAuthUser } from '@/lib/auth/session';
+import { useAuthUser } from '@/lib/auth/use-auth-user';
 
 export const SwissGrid = ({ children }: { children: React.ReactNode }) => {
   const { t } = useTranslations();
-  const currentUser = getStoredAuthUser();
+  const currentUser = useAuthUser();
   const isAdmin = currentUser?.role === 'admin';
 
   return (

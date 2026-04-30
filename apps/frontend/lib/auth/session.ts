@@ -80,6 +80,9 @@ export function storeAuthSession(session: AuthSession): void {
   window.localStorage.setItem(AUTH_TOKEN_KEY, session.accessToken);
   window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(session.user));
   window.localStorage.setItem(AUTH_EXPIRES_AT_KEY, String(session.expiresAt));
+
+  // Notify components that auth state has changed
+  window.dispatchEvent(new Event('auth-change'));
 }
 
 export function clearAuthSession(): void {
@@ -90,6 +93,9 @@ export function clearAuthSession(): void {
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_USER_KEY);
   window.localStorage.removeItem(AUTH_EXPIRES_AT_KEY);
+
+  // Notify components that auth state has changed
+  window.dispatchEvent(new Event('auth-change'));
 }
 
 function getMasterResumeStorageKey(userId?: string | null): string {

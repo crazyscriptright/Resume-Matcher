@@ -15,7 +15,8 @@ import {
     previewImproveResume,
     uploadJobDescriptions,
 } from '@/lib/api/resume';
-import { getStoredAuthUser, getStoredMasterResumeId } from '@/lib/auth/session';
+import { getStoredMasterResumeId } from '@/lib/auth/session';
+import { useAuthUser } from '@/lib/auth/use-auth-user';
 import { useStatusCache } from '@/lib/context/status-cache';
 import { useTranslations } from '@/lib/i18n';
 import { AlertTriangle, ArrowLeft, Loader2, Settings } from 'lucide-react';
@@ -25,6 +26,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 export default function TailorPage() {
   const { t } = useTranslations();
+  const currentUser = useAuthUser();
   const [jobTitle, setJobTitle] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -85,7 +87,7 @@ export default function TailorPage() {
   const isLlmConfigured = !statusLoading && systemStatus?.llm_configured;
 
   useEffect(() => {
-    const storedId = getStoredMasterResumeId(getStoredAuthUser()?.user_id ?? null);
+    const storedId = getStoredMasterResumeId(currentUser?.user_id ?? null);
     if (!storedId) {
       router.push('/dashboard');
     } else {

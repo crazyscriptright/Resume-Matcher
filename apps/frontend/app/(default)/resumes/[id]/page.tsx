@@ -14,9 +14,9 @@ import {
 } from '@/lib/api/resume';
 import {
     clearStoredMasterResumeId,
-    getStoredAuthUser,
     getStoredMasterResumeId,
 } from '@/lib/auth/session';
+import { useAuthUser } from '@/lib/auth/use-auth-user';
 import { useLanguage } from '@/lib/context/language-context';
 import { useStatusCache } from '@/lib/context/status-cache';
 import { useTranslations } from '@/lib/i18n';
@@ -51,7 +51,7 @@ export default function ResumeViewerPage() {
   const [editingTitleValue, setEditingTitleValue] = useState('');
 
   const resumeId = params?.id as string;
-  const currentUserId = getStoredAuthUser()?.user_id ?? null;
+  const currentUserId = useAuthUser()?.user_id ?? null;
 
   const localizedResumeData = useMemo(() => {
     if (!resumeData) return null;

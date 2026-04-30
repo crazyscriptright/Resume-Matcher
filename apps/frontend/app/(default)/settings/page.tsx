@@ -381,6 +381,7 @@ export default function SettingsPage() {
 
       // Refresh cached system status after save
       await refreshStatus();
+      window.dispatchEvent(new Event('system-status-change'));
 
       setStatus('saved');
       setTimeout(() => setStatus('idle'), 2000);
@@ -512,6 +513,7 @@ export default function SettingsPage() {
       setHealthCheck(null);
       // Refresh status
       await refreshStatus();
+      window.dispatchEvent(new Event('system-status-change'));
       setError(null);
       setSuccessDialogMessage({
         title: t('common.success'),
