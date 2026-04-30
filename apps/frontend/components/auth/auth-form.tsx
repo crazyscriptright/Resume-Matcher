@@ -12,7 +12,7 @@ import {
     type AuthSession,
 } from '@/lib/auth/session';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 type AuthMode = 'login' | 'register';
@@ -85,27 +85,27 @@ export function AuthForm({
   alternateHref,
   alternateLabel,
   alternatePrompt,
-}: AuthFormProps) {
+  redirectTo,
+}: AuthFormProps & { redirectTo?: string }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
-  const redirectTo = normalizeRedirectTarget(searchParams.get('redirect'));
+  const finalRedirectTo = redirectTo || normalizeRedirectTarget(null);
 
   useEffect(() => {
     const session = getStoredAuthSession();
     if (session) {
-      router.replace(redirectTo);
+      router.replace(finalRedirectTo);
       return;
     }
 
     clearAuthSession();
     setIsReady(true);
-  }, [redirectTo, router]);
+  }, [finalRedirectTo, router]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -116,7 +116,9 @@ export function AuthForm({
       try {
         const session = await submitAuth(mode, email.trim().toLowerCase(), password);
         storeAuthSession(session);
-        router.replace(redirectTo);
+        // Notify status cache to refresh with the new auth token
+        window.dispatchEvent(new Event('system-status-change'));
+        router.replace(finalRedirectTo);
       } catch (submissionError) {
         setError(
           submissionError instanceof Error ? submissionError.message : 'Authentication failed.'
