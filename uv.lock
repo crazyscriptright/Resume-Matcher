@@ -2122,7 +2122,6 @@ requires-dist = [
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = "==0.128.4" },
-    { name = "firebase-admin", specifier = ">=6.0.0" },
     { name = "firebase-admin", specifier = ">=7.4.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.0" },
     { name = "litellm", specifier = "==1.83.0" },
