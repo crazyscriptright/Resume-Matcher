@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "--- Running Heroku post_compile to install Playwright chromium ---"
+python -m playwright install chromium
+echo "--- Playwright installation finished ---"
