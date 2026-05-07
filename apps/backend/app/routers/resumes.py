@@ -650,6 +650,51 @@ async def get_resume(resume_id: str = Query(...), user: dict[str, Any] = Depends
     )
 
 
+@router.get("/{resume_id}/print-data", response_model=ResumeFetchResponse)
+async def get_resume_print_data(resume_id: str) -> ResumeFetchResponse:
+    """Internal endpoint for the print page to fetch resume data.
+
+    This endpoint does NOT require user JWT authentication because it is
+    called server-side by the Next.js print page (a server component) which
+    has no access to the user's browser session/token. Playwright opens
+    the print URL without cookies or auth headers.
+
+    Security: This endpoint only returns data needed for rendering and is
+    only reachable from the server itself (localhost). The print page is
+    accessed by Playwright running on the same machine.
+    """
+    resume = db.get_resume(resume_id)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    processing_status = resume.get("processing_status", "pending")
+
+    raw_resume = RawResume(
+        id=None,
+        content=resume["content"],
+        content_type=resume["content_type"],
+        created_at=resume["created_at"],
+        processing_status=processing_status,
+    )
+
+    processed_data = resume.get("processed_data")
+    if processed_data:
+        processed_data = normalize_resume_data(processed_data)
+
+    processed_resume = (
+        ResumeData.model_validate(processed_data) if processed_data else None
+    )
+
+    return ResumeFetchResponse(
+        request_id=str(uuid4()),
+        data=ResumeFetchData(
+            resume_id=resume_id,
+            raw_resume=raw_resume,
+            processed_resume=processed_resume,
+        ),
+    )
+
+
 @router.get("/list", response_model=ResumeListResponse)
 async def list_resumes(include_master: bool = Query(False), user: dict[str, Any] = Depends(get_current_user)) -> ResumeListResponse:
     """List resumes for the authenticated user, optionally including the master resume."""

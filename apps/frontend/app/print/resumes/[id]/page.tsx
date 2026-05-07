@@ -77,7 +77,10 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
 }
 
 async function fetchResumeData(id: string): Promise<ResumeData> {
-  const res = await fetch(`${API_BASE}/resumes?resume_id=${encodeURIComponent(id)}`, {
+  // Use the print-data endpoint which doesn't require JWT auth.
+  // This is necessary because the print page is a server component rendered
+  // by Playwright, which has no access to the user's browser session/token.
+  const res = await fetch(`${API_BASE}/resumes/${encodeURIComponent(id)}/print-data`, {
     cache: 'no-store',
   });
   if (!res.ok) {

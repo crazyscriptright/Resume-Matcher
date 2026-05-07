@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
@@ -15,6 +16,8 @@ from playwright.async_api import (
     Playwright,
     async_playwright,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PDFRenderError(Exception):
@@ -112,25 +115,34 @@ def _find_chromium_executable() -> Optional[str]:
 
 
 async def _launch_browser(playwright: Playwright) -> Browser:
-    browser_args = [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-    ]
+    browser_args = []
+    # Heroku requires --no-sandbox to run Chromium
+    if "DYNO" in os.environ or sys.platform == "linux":
+        browser_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+        ]
+    
     try:
-        return await playwright.chromium.launch(args=browser_args)
+        logger.info("Attempting Playwright default chromium launch...")
+        browser = await playwright.chromium.launch(args=browser_args) if browser_args else await playwright.chromium.launch()
+        logger.info("Playwright chromium launched successfully")
+        return browser
     except PlaywrightError as e:
+        logger.warning("Default Playwright launch failed: %s", e)
         if "Executable doesn't exist" not in str(e):
             raise
         fallback_executable = _find_chromium_executable()
+        logger.info("Fallback executable found: %s", fallback_executable)
         if not fallback_executable:
             raise PDFRenderError(
                 "Playwright browser executable is missing, and no system Chrome/Edge "
                 "installation was found. Install Playwright browsers or install Chrome/Edge."
             ) from e
-        return await playwright.chromium.launch(
-            executable_path=fallback_executable, args=browser_args
-        )
+        if browser_args:
+            return await playwright.chromium.launch(executable_path=fallback_executable, args=browser_args)
+        return await playwright.chromium.launch(executable_path=fallback_executable)
 
 
 async def _render_page_to_pdf(
@@ -278,40 +290,55 @@ async def render_resume_pdf(
     pdf_format = _resolve_pdf_format(page_size)
     pdf_margins = _resolve_pdf_margins(margins)
 
+    logger.info("render_resume_pdf called: url=%s, _browser=%s", url, _browser is not None)
+
     if _browser is not None:
         try:
+            logger.info("Using existing browser instance")
             return await _render_with_browser(_browser, url, selector, pdf_format, pdf_margins)
         except PlaywrightError as e:
+            logger.error("Render with existing browser failed: %s", e)
             _raise_playwright_error(e, url)
 
     async with _subprocess_lock:
         subprocess_supported = _subprocess_supported
         if subprocess_supported and not _loop_supports_subprocess():
+            logger.info("Event loop does not support subprocess, falling back to thread")
             _subprocess_supported = False
             subprocess_supported = False
 
+    logger.info("subprocess_supported=%s", subprocess_supported)
+
     if subprocess_supported:
         try:
+            logger.info("Attempting init_pdf_renderer (subprocess path)")
             await init_pdf_renderer()
         except NotImplementedError:
+            logger.warning("NotImplementedError during init_pdf_renderer, switching to thread fallback")
             async with _subprocess_lock:
                 _subprocess_supported = False
             subprocess_supported = False
         except PlaywrightError as e:
+            logger.error("PlaywrightError during init_pdf_renderer: %s", e)
             _raise_playwright_error(e, url)
 
     if not subprocess_supported:
         try:
+            logger.info("Using thread-based rendering fallback")
             return await _render_resume_pdf_in_thread(
                 url, selector, pdf_format, pdf_margins
             )
         except PlaywrightError as e:
+            logger.error("Thread-based rendering failed: %s", e)
             _raise_playwright_error(e, url)
 
     if _browser is None:
+        logger.error("PDF renderer failed to initialize - _browser is still None")
         raise PDFRenderError("PDF renderer failed to initialize.")
 
     try:
+        logger.info("Rendering with newly initialized browser")
         return await _render_with_browser(_browser, url, selector, pdf_format, pdf_margins)
     except PlaywrightError as e:
+        logger.error("Render with newly initialized browser failed: %s", e)
         _raise_playwright_error(e, url)
