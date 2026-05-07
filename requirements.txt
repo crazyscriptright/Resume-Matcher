@@ -1,2 +1,0 @@
--r apps/backend/requirements.txt
-playwright==1.58.0
