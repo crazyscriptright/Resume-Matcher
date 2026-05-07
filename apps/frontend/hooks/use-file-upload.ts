@@ -3,12 +3,12 @@
 import { getStoredAccessToken } from '@/lib/auth/session';
 import type React from 'react';
 import {
-    useCallback,
-    useRef,
-    useState,
-    type ChangeEvent,
-    type DragEvent,
-    type InputHTMLAttributes,
+  useCallback,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type InputHTMLAttributes,
 } from 'react';
 
 export type FileMetadata = {

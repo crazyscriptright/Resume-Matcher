@@ -1,18 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { useAuthUser } from '@/lib/auth/use-auth-user';
 import { fetchUsers, updateUserRole, type AdminUser } from '@/lib/api/admin';
+import { useAuthUser } from '@/lib/auth/use-auth-user';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import Crown from 'lucide-react/dist/esm/icons/crown';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Shield from 'lucide-react/dist/esm/icons/shield';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import User from 'lucide-react/dist/esm/icons/user';
-import Crown from 'lucide-react/dist/esm/icons/crown';
 
 const VALID_ROLES = ['user', 'premium', 'admin'] as const;
 
@@ -84,9 +83,7 @@ export default function AdminPage() {
     try {
       const result = await updateUserRole(userId, newRole);
       // Update local state
-      setUsers((prev) =>
-        prev.map((u) => (u.user_id === userId ? { ...u, role: newRole } : u))
-      );
+      setUsers((prev) => prev.map((u) => (u.user_id === userId ? { ...u, role: newRole } : u)));
       setSuccessMessage(result.message);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -118,11 +115,7 @@ export default function AdminPage() {
     <div className="min-h-screen w-full bg-[#F6F5EE] flex flex-col items-center p-4 md:p-8 font-sans">
       <div className="w-full max-w-5xl bg-white border border-black shadow-sw-lg p-8 md:p-12 relative">
         {/* Header */}
-        <Button
-          variant="link"
-          className="absolute top-4 left-4"
-          onClick={() => router.back()}
-        >
+        <Button variant="link" className="absolute top-4 left-4" onClick={() => router.back()}>
           <ArrowLeft className="w-4 h-4" />
           Back
         </Button>
@@ -130,9 +123,7 @@ export default function AdminPage() {
         <div className="mb-8 mt-4 text-center">
           <div className="flex items-center justify-center gap-3 mb-2">
             <Shield className="w-8 h-8 text-blue-700" />
-            <h1 className="font-serif text-4xl font-bold uppercase tracking-tight">
-              Admin Panel
-            </h1>
+            <h1 className="font-serif text-4xl font-bold uppercase tracking-tight">Admin Panel</h1>
           </div>
           <p className="font-mono text-sm text-blue-700 font-bold uppercase">
             {'// '}User Management
@@ -220,9 +211,7 @@ export default function AdminPage() {
                     {/* Role Selector */}
                     <div className="p-3">
                       {isSelf ? (
-                        <span className="font-mono text-xs text-steel-grey italic">
-                          Protected
-                        </span>
+                        <span className="font-mono text-xs text-steel-grey italic">Protected</span>
                       ) : (
                         <div className="relative">
                           {isUpdating && (
@@ -232,9 +221,7 @@ export default function AdminPage() {
                           )}
                           <select
                             value={user.role}
-                            onChange={(e) =>
-                              handleRoleChange(user.user_id, e.target.value)
-                            }
+                            onChange={(e) => handleRoleChange(user.user_id, e.target.value)}
                             disabled={isUpdating}
                             className="w-full font-mono text-xs border border-black bg-white px-2 py-1.5 uppercase cursor-pointer hover:bg-gray-50 focus:ring-1 focus:ring-blue-700 focus:outline-none rounded-none appearance-none"
                           >

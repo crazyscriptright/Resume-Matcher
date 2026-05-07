@@ -92,7 +92,9 @@ export async function apiFetch(
           const redirect = encodeURIComponent(currentPath + window.location.search);
           try {
             window.dispatchEvent(
-              new CustomEvent('unauthorized', { detail: { redirect: `/login?redirect=${redirect}` } })
+              new CustomEvent('unauthorized', {
+                detail: { redirect: `/login?redirect=${redirect}` },
+              })
             );
           } catch {
             // Fallback to hard navigation on older browsers or if dispatch fails

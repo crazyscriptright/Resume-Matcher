@@ -11,9 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { fetchPromptConfig, type PromptOption } from '@/lib/api/config';
 import {
-    confirmImproveResume,
-    previewImproveResume,
-    uploadJobDescriptions,
+  confirmImproveResume,
+  previewImproveResume,
+  uploadJobDescriptions,
 } from '@/lib/api/resume';
 import { getStoredMasterResumeId } from '@/lib/auth/session';
 import { useAuthUser } from '@/lib/auth/use-auth-user';
@@ -93,7 +93,7 @@ export default function TailorPage() {
     } else {
       setMasterResumeId(storedId);
     }
-  }, [router]);
+  }, [router, currentUser?.user_id]);
 
   useEffect(() => {
     let cancelled = false;

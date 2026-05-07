@@ -5,17 +5,14 @@ import { EnrichmentModal } from '@/components/enrichment/enrichment-modal';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-    deleteResume,
-    downloadResumePdf,
-    fetchResume,
-    getResumePdfUrl,
-    renameResume,
-    retryProcessing,
+  deleteResume,
+  downloadResumePdf,
+  fetchResume,
+  getResumePdfUrl,
+  renameResume,
+  retryProcessing,
 } from '@/lib/api/resume';
-import {
-    clearStoredMasterResumeId,
-    getStoredMasterResumeId,
-} from '@/lib/auth/session';
+import { clearStoredMasterResumeId, getStoredMasterResumeId } from '@/lib/auth/session';
 import { useAuthUser } from '@/lib/auth/use-auth-user';
 import { useLanguage } from '@/lib/context/language-context';
 import { useStatusCache } from '@/lib/context/status-cache';

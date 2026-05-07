@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { getStoredAccessToken } from '@/lib/auth/session';
 import { usePathname, useRouter } from 'next/navigation';

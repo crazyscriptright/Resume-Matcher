@@ -6,10 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiPost } from '@/lib/api/client';
 import {
-    clearAuthSession,
-    getStoredAuthSession,
-    storeAuthSession,
-    type AuthSession,
+  clearAuthSession,
+  getStoredAuthSession,
+  storeAuthSession,
+  type AuthSession,
 } from '@/lib/auth/session';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';

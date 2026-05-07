@@ -8,8 +8,6 @@ export default function Hero() {
 
   const buttonClass =
     'group relative border border-black bg-transparent px-8 py-3 font-mono text-sm font-bold uppercase text-blue-700 transition-[transform,box-shadow,background-color,color] duration-150 ease-out hover:bg-blue-700 hover:text-background hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-sw-default active:translate-x-0 active:translate-y-0 active:shadow-none cursor-pointer';
-  const linkPillClass =
-    'inline-flex items-center gap-2 border border-black bg-background px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.18em] text-black transition-transform duration-150 hover:-translate-y-[1px] hover:shadow-sw-sm';
 
   return (
     <section

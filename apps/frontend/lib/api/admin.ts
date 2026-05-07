@@ -35,10 +35,7 @@ export async function fetchUsers(): Promise<AdminUser[]> {
 }
 
 /** Update a user's role (admin only). */
-export async function updateUserRole(
-  userId: string,
-  role: string
-): Promise<UpdateRoleResponse> {
+export async function updateUserRole(userId: string, role: string): Promise<UpdateRoleResponse> {
   const res = await apiFetch(`/admin/users/${userId}/role`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
