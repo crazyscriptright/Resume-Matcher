@@ -1,0 +1,56 @@
+{
+  "folders": [
+    {
+      "path": ".",
+    },
+  ],
+  "settings": {},
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "backend: uv sync",
+        "type": "shell",
+        "command": "uv",
+        "args": ["sync"],
+        "options": {
+          "cwd": "${workspaceFolder}/apps/backend",
+        },
+        "presentation": {
+          "panel": "dedicated",
+        },
+      },
+      {
+        "label": "backend: uv run",
+        "type": "shell",
+        "command": "uv",
+        "args": ["run", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
+        "options": {
+          "cwd": "${workspaceFolder}/apps/backend",
+        },
+        "presentation": {
+          "panel": "dedicated",
+        },
+        "dependsOn": ["backend: uv sync"],
+        "runOptions": {
+          "runOn": "folderOpen",
+        },
+      },
+      {
+        "label": "frontend: npm dev",
+        "type": "shell",
+        "command": "npm",
+        "args": ["run", "dev"],
+        "options": {
+          "cwd": "${workspaceFolder}/apps/frontend",
+        },
+        "presentation": {
+          "panel": "dedicated",
+        },
+        "runOptions": {
+          "runOn": "folderOpen",
+        },
+      },
+    ],
+  },
+}
