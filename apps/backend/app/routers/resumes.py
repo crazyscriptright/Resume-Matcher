@@ -1455,7 +1455,6 @@ async def download_resume_pdf(
     showContactIcons: bool = Query(False),
     accentColor: str = Query("blue", pattern="^(blue|green|orange|red)$"),
     lang: str | None = Query(None, pattern="^[a-z]{2}(-[A-Z]{2})?$"),
-    user: dict[str, Any] = Depends(get_current_user),
 ) -> Response:
     """Generate a PDF for a resume using headless Chromium.
 
@@ -1477,7 +1476,6 @@ async def download_resume_pdf(
     resume = db.get_resume(resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
-    _ensure_owner(resume, user)
 
     # Build print URL with all settings
     params = (
@@ -1822,7 +1820,6 @@ async def download_cover_letter_pdf(
     resume_id: str,
     pageSize: str = Query("A4", pattern="^(A4|LETTER)$"),
     lang: str | None = Query(None, pattern="^[a-z]{2}(-[A-Z]{2})?$"),
-    user: dict[str, Any] = Depends(get_current_user),
 ) -> Response:
     """Generate a PDF for a cover letter using headless Chromium.
 
@@ -1834,7 +1831,6 @@ async def download_cover_letter_pdf(
     resume = db.get_resume(resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
-    _ensure_owner(resume, user)
 
     cover_letter = resume.get("cover_letter")
     if not cover_letter:
